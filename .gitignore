@@ -1,0 +1,5 @@
+# dev-only artifacts (not part of the bundle)
+.dev/
+shots/
+node_modules/
+pnpm-lock.yaml

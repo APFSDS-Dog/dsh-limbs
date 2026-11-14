@@ -1,0 +1,19 @@
+# dsh-limbs bundle patch.
+#
+# Mounts this bundle's Host half (lib/host.js — an empty loader placeholder) and
+# its Client half (lib/client.js — the composer model seat).
+#
+# The shipped selector is NOT disabled here, on purpose: this plugin replaces the
+# seat by registering the same `conversation.input.model` slot at priority -1
+# (the slot core renders the lowest priority, the stock control sits at 0).
+# Keeping `ui-model-selection` mounted is what leaves `ctx.modelDirectories` —
+# the one per-session directory this picker reads and writes — and the `/model`
+# popup alive, so both surfaces always show the same selection.
+#
+# To get the built-in selector back with no residue: disable this row in your
+# profile patch (same id, `disabled: true`), or remove the bundle. Every style
+# and listener this plugin adds is registered under ctx.effect and is disposed
+# with the entry.
+- insert:
+    - id: dsh-limbs
+      name: dsh-limbs

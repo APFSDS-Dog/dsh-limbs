@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Limbs">
+  <defs>
+    <linearGradient id="limbsGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4f8cff"/>
+      <stop offset="1" stop-color="#7c5cff"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#limbsGrad)" opacity="0.14"/>
+  <g fill="none" stroke="url(#limbsGrad)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 40 V24"/>
+    <path d="M32 40 20 48"/>
+    <path d="M32 40 44 48"/>
+    <circle cx="32" cy="19" r="4.2" fill="url(#limbsGrad)" stroke="none"/>
+    <circle cx="18.5" cy="49" r="3.4" fill="url(#limbsGrad)" stroke="none"/>
+    <circle cx="45.5" cy="49" r="3.4" fill="url(#limbsGrad)" stroke="none"/>
+  </g>
+</svg>

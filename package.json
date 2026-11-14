@@ -1,0 +1,47 @@
+{
+  "name": "dsh-limbs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH 的「手脚」插件：把外部平台能力以模型选择器的形式暴露给用户。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apfsds-dog/dsh-limbs.git"
+  },
+  "exports": {
+    ".": "./lib/host.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib/host.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "homepage": "https://github.com/apfsds-dog/dsh-limbs#readme",
+  "bugs": {
+    "url": "https://github.com/apfsds-dog/dsh-limbs/issues"
+  },
+  "author": "APFSDS-Dog <105074583+APFSDS-Dog@users.noreply.github.com>",
+  "keywords": [
+    "dsh-plugin"
+  ]
+}
