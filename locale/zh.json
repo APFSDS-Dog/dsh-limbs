@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "手脚 (Limbs)",
-    "description": "可搜索的全平台模型选择器：实时负载、倍率与折扣提示，并把选中的模型写回当前会话。",
-    "detail": "docs/DETAIL.md"
+    "description": "可搜索的全平台模型选择器 + 全中文的推理/上下文档位管理，设置按账号保存。",
+    "detail": "README.md"
   }
 }

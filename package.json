@@ -18,9 +18,9 @@
   "files": [
     "lib/host.js",
     "lib/client.js",
+    "lib/model-management",
     "cordis.patch.yml",
     "locale/*.json",
-    "docs",
     "icon.svg",
     "README.md"
   ],

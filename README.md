@@ -1,6 +1,6 @@
 # dsh-limbs
 
-> DSH 的「手脚」：把 composer 里那个朴素的模型选择器，换成一个可搜索、双栏、键盘可用的版本——数据仍然来自 DSH 官方目录，不联网、不另存一份。
+> DSH 的「手脚」：模块一把 composer 里那个朴素的模型选择器换成可搜索、双栏、键盘可用的版本；模块二把模型管理改成全中文、从左到右的推理/上下文档位滑动；模块三在对话结束后复盘 token 到底花在哪儿。模型数据来自 DSH 官方目录与原生事件流，不联网、不自建模型清单。
 
 ![MIT](https://img.shields.io/badge/license-MIT-blue)
 
@@ -27,6 +27,56 @@ DSH（DeepSeek Harness）的模型选择座位 `conversation.input.model` 默认
 | 右栏 | 行动态分组标题（全部视图下吸顶）；选中行有品牌色底 + `✓` |
 | 底栏 | `N 提供商 · M 模型 · K 失败`、「重新读取」、键盘提示 |
 | 主题 | 全部颜色走 `--dsw-alias-*` / `--dsw-specific-*` 令牌，浅色/深色自动跟随 |
+
+## 模块二 · 档位化模型管理
+
+设置里的「模型管理」是一个单页、全中文、居中 400–640px 的档位面板。两个核心控件都是横向滑动条，进入页面第一屏就能看到：
+
+| 模块 | 从左到右 | 默认档 |
+|---|---|---|
+| 推理挡位 | 关闭 → 默认 → 低 → 中 → 高 → 最高（可选） | 服务商默认 |
+| 上下文长度 | 300K → 600K → 1M | 600K（带「默认」文字标识） |
+
+- **档位吸附**：拖动时按轨道比例吸附最近的可用档，松手才保存；点击刻度直接跳转。
+- **键盘**：Tab 聚焦轨道，`←/→` 或 `↑/↓` 切换，`Home/End` 到两端；方向键自动跳过禁用档。
+- **状态可读**：选中「关闭」顶部显示「推理已关闭」；「服务商默认」显示「服务商默认：使用服务商提供的默认强度」；上下文摘要显示「600K 上下文 · 适中」。
+- **最高档**：由 `showMax` 配置决定是否展示；展示但服务商不支持时只置灰对应圆点，`title` / 点击 Toast 给中文原因。
+- **颜色不是唯一信号**：当前档有实心点 + `✓` + 加粗文字；默认档有「默认」文字；禁用档有 `aria-disabled` 和中文原因。
+- **保存**：即时保存 + 乐观更新 + 失败回滚；Host 侧按账号分桶、按 `updatedAt` 最新优先，多窗口通过 30 秒轮询和窗口 focus 同步。
+- **恢复默认**：二次确认后只恢复推理挡位与上下文长度，当前模型不变。
+
+完整设计与协议见 [Docs/MODULE2.md](https://github.com/apfsds-dog/dsh-limbs/blob/main/Docs/MODULE2.md)（仓库内文档，不随包发布）。Host 保存接口 `GET/PUT /limbs/model-settings` 的令牌由 Host 启动时注入页面；`lib/host.js` 改动需要重启 DSH 才生效。
+
+## 模块三 · 事后复盘分析器
+
+对话结束后复盘「钱花在哪儿」，找出浪费模式并给出可执行的优化建议。
+
+两个入口：
+
+| 入口 | 用法 |
+|---|---|
+| 工具 | `analyze_conversation_efficiency`，模型可自行调用；参数 `top_n` 控制归因榜单长度（默认 3） |
+| 命令 | `/limbs-review [top_n]`，直接面向人，不经过模型 |
+
+报告包含：总账、费用大头（Top N 工具归因）、上下文构成、效率诊断、效率评分、优化建议。
+
+### 数据源：投影优先，事件流兜底
+
+- **装了 `dsh-context` 时**，读它已经算好的 `contextTimeline` 投影（走公开接口 `ctx.sessionProjections.snapshot`，不是逆向它的私有实现）：
+  美元金额、上下文按类别拆分、每个工具耗时、终端输出字符数。
+- **没装、键未注册或版本不匹配时**，自动退回纯事件流口径：从 `tool/call` / `tool/result` / `assistant/message` 自己算。
+  功能完整、不报错，只是没有金额与类别构成。
+
+### 费用归因口径
+
+`inputTokens` 是**整段前缀的总量，不是增量**。直接按步累加会重复计费、虚高到没法看。
+所以用差分：第 N 步的输入减去第 N−1 步的输入，归给第 N−1 步的工具，按各工具结果体量分摊；输出 token 直接归本步。
+缓存命中只展示、不参与排名——没有可指认的折扣价就不编一个。
+
+### 诊断规则
+
+重复调用（同名同参 ≥ 3 次）、全量读大文件（≥ 20KB 且未指定范围）、终端输出过大（≥ 8KB）、
+单次结果过大（≥ 30KB）、工具报错。阈值集中在 [lib/host.js](lib/host.js) 的 `THRESHOLDS`，按真实数据调。
 
 ## 安装
 
@@ -130,9 +180,17 @@ const LIMBS_META = {
 
 > 原则：没有可指认来源的数字就不填。界面宁可空着，也不编造。
 
-### 其它
+### 模块二设置
 
-本插件没有需要持久化的配置项，也不写任何本地文件。想改语言文案，编辑 `lib/client.js` 里的 `STR`（`zh` / `en` 两套，按 `navigator.language` 选择）。
+模块二的两档设置由 Host 保存到 `<DSH_HOME>/dsh-limbs/model-settings.json`，按账号分桶（`deepseekAccount.getDeviceIdentity().userId`，未登录用 `local`）。保存接口只接受两个字段，带 `x-limbs-token`，并拒绝跨站来源。
+
+想改档位本身，编辑 [lib/model-management/levels.js](lib/model-management/levels.js)（数组即配置）；Client 侧有一份同构内置表用于 Host 缺席时降级，测试会比对两份数据。最高档展示开关：
+
+```js
+localStorage['dsh-limbs:level-config'] = JSON.stringify({ showMax: false })
+```
+
+其它语言文案仍在 `lib/client.js` 的 `STR`（`zh` / `en` 两套）；模块二为了满足「全中文」要求，使用独立的 `MM` 文案对象，不随浏览器语言切换。
 
 ## 主题与样式令牌
 
@@ -174,9 +232,11 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 
 ## 数据与隐私
 
-- Host 半侧（[lib/host.js](lib/host.js)）是空实现：不注册工具、不建服务、不联网、不持久化。
+- 模块三（[lib/host.js](lib/host.js) 的复盘分析器）只读：读会话事件流与投影、注册一个工具和一条命令，不写会话日志、不联网。
+- 模块二的 Host 保存接口只写 `<DSH_HOME>/dsh-limbs/model-settings.json`：两个档位字段 + 账号分桶 + 时间戳，不写会话日志、不联网、不碰模型目录。
+- 模块三不发送任何模型请求，报告在本地算完直接返回。
 - 所有模型数据来自官方 `ctx.modelDirectories`（底层 `session.modelCatalog` / `session.selectModel`），插件自己不维护第二份目录。
-- 没有任何外部请求；`LIMBS_META` 是编译在文件里的静态表，不是远程拉取。
+- 没有外部网络请求；`LIMBS_META` 是编译在文件里的静态表，不是远程拉取。
 
 ## 已知限制
 
@@ -185,24 +245,43 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 - **不接管子槽**：不渲染 `conversation.input.model.label` / `.options` 的第三方贡献（官方控件仍会渲染它们）。
 - **subagent 会话不显示该座位**：与官方行为一致。
 - 推理档位切换只对声明了 `reasoning` 的模型出现；没有该字段的提供商不显示胶囊。
+- **模块二的「模型选择」是只读展示**：设置分区没有 session，模型仍在 composer 选择器里切换；恢复默认不改变当前模型。
+- **模块二的同步范围是同一台 Host**：Host 文件按账号分桶、多窗口可同步；跨设备需要 DSH 账号后端接口，当前版本没有该通道，页面会明确显示「已保存到本机」或「服务端已同步」。
+- **模块二最高档能力来自模块一的最近模型记录**：模型没有声明 `max` 档时置灰，而不是猜测可用。
 
 ## 目录结构
 
 ```
 package.json        # bundle 清单：dsh.bundle.patch + dsh.client
 cordis.patch.yml    # 加载器补丁：插入 dsh-limbs 条目
-lib/host.js         # Host 半侧：空实现占位（不联网、不持久化）
-lib/client.js       # Client 半侧：座位注册 + 双栏抽屉 + 全部 CSS
+lib/host.js         # Host 半侧：模块三复盘分析器 + 模块二保存接口
+lib/client.js       # Client 半侧：座位注册 + 双栏抽屉 + 模型管理页 + 全部 CSS
+lib/model-management/levels.js  # 模块二档位单一真源 + 旧配置映射
 locale/en.json      # 插件列表标题/描述（英文）
 locale/zh.json      # 插件列表标题/描述（中文）
-docs/DETAIL.md      # 插件详情页文档
 icon.svg            # 插件图标
-tools/              # 开发期 PowerShell 辅助脚本，不随包发布
 ```
+
+> **`Docs/` 与 `tools/` 不随包发布** —— `Docs/` 是工程治理文档（设计、决策、踩坑、任务记录），
+> 只有这个 README 是给用户的。要看设计细节请到仓库：
+> <https://github.com/apfsds-dog/dsh-limbs/tree/main/Docs>
 
 ## 开发
 
 无构建步骤，`lib/client.js` 就是浏览器直接加载的模块。改完保存 → 刷新页面（桌面版 `Ctrl+R`）即可看到效果；[tools/reload-window.ps1](tools/reload-window.ps1) 可以代你给 DSH 窗口发一次 `Ctrl+R`。
+
+`lib/host.js` 是 Host 半侧，**刷新页面不会重载它——改完必须重启 DSH**。
+
+离线测试（不启动 DSH，用 Electron 当 Node）：
+
+```pwsh
+$env:ELECTRON_RUN_AS_NODE='1'
+& '<DSH 可执行文件>' .dev\postmortem-test.mjs
+& '<DSH 可执行文件>' .dev\postmortem-test.mjs --print   # 附带打印一份样例报告
+& '<DSH 可执行文件>' .dev\model-management-test.mjs     # 模块二：101 条断言
+& '<DSH 可执行文件>' .dev\ui-shell-test.mjs             # 模块三 UI 回归：48 条
+& '<DSH 可执行文件>' tools\render-check.mjs             # 模块一选择器回归
+```
 
 调试样式最快的办法：DevTools 里直接改 `<style id="dsh-limbs-styles">`，满意后再同步回 `lib/client.js` 的 `CSS` 模板字符串。
 

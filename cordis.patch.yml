@@ -1,7 +1,9 @@
 # dsh-limbs bundle patch.
 #
-# Mounts this bundle's Host half (lib/host.js — an empty loader placeholder) and
-# its Client half (lib/client.js — the composer model seat).
+# Mounts this bundle's Host half (lib/host.js — 模块三：事后复盘分析器，注册
+# `analyze_conversation_efficiency` 只读工具；模块二：`/limbs/model-settings`
+# 档位保存接口) and its Client half (lib/client.js — the composer model seat
+# and the 设置 →「模型管理」档位页).
 #
 # The shipped selector is NOT disabled here, on purpose: this plugin replaces the
 # seat by registering the same `conversation.input.model` slot at priority -1

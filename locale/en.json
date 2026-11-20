@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Limbs",
-    "description": "One searchable model selector for every platform a session can reach, with live load, price multiplier, and discount hints.",
-    "detail": "docs/DETAIL.md"
+    "description": "One searchable model selector for every platform a session can reach, plus a plain-language reasoning and context level manager.",
+    "detail": "README.md"
   }
 }

@@ -68,15 +68,26 @@ function render({ open, metaPatch, state }) {
   }
 
   let registered = null
+  const byName = new Map()
   const slots = {
     inject: (_key, callback) => { callback(); return noop },
-    register: (options, component) => { registered = { options, component }; return noop },
+    register: (options, component) => {
+      // The plugin now registers several slots; keep them all and pick the one
+      // under test, instead of letting the last registration win.
+      byName.set(options.name, { options, component })
+      registered = { options, component }
+      return noop
+    },
   }
   const ctx = {
     get: (name) => {
       if (name === 'slots') return slots
       if (name === 'modelDirectories') return { directoryFor: () => directory }
       if (name === 'sessions') return { subagentAddress: () => undefined }
+      // The UI-shell registrations are exercised by .dev/ui-shell-test.mjs;
+      // here they only need to not throw while the seat is set up.
+      if (name === 'sidebarRightTabs') return { register: () => noop }
+      if (name === 'sidebarRight') return { openTab: () => {} }
       return undefined
     },
     effect: (fn) => { fn(); return noop },
@@ -88,6 +99,8 @@ function render({ open, metaPatch, state }) {
   })
   plugin.apply(ctx)
 
+  // The seat is the registration this check is about.
+  registered = byName.get('conversation.input.model') || null
   if (registered === null) throw new Error('seat was not registered')
   const face = registered.options.inject('session-1')
   if (face.available !== true) throw new Error('seat reported unavailable: ' + JSON.stringify(face))
