@@ -6,6 +6,17 @@ DSH 的「手脚」：把外部平台的能力以模型选择器的形式暴露�
 
 composer 的模型座位（`conversation.input.model`）。本插件以 `priority: -1` 注册同一个座位，遮蔽内置控件（`0`，槽规则为「最低优先级渲染」）；内置包继续挂载，因此 `ctx.modelDirectories` 与 `/model` 命令都保留，两者与本选择器共用同一份每会话目录。
 
+## 模块二 · 模型管理
+
+设置 →「模型管理」是一个全中文单页：
+
+- **推理挡位**：关闭 → 服务商默认 → 低 → 中 → 高 → 最高（可选），横向滑动、点击刻度或键盘左右键切换。
+- **上下文长度**：300K → 600K（默认）→ 1M，顶部显示「600K 上下文 · 适中」。
+- **保存**：即时保存 + 乐观更新 + 失败回滚；Host 按账号保存到 `<DSH_HOME>/dsh-limbs/model-settings.json`，按 `updatedAt` 最新优先。
+- **恢复默认**：二次确认，只恢复两个档位字段，当前模型不变。
+
+最高档是否展示由 `localStorage['dsh-limbs:level-config']` 的 `showMax` 控制；服务商不支持时置灰并提示。完整映射表与协议见 [MODULE2.md](MODULE2.md)。
+
 ## 使用
 
 - 点 composer 里的模型名打开下拉列表。
@@ -46,6 +57,7 @@ profile 的 `cordis.patch.yml`：
 ## 限制
 
 - 没有「管理提供商」入口（刻意不做）：客户端插件没有打开设置页的导航接口，提供商仍用 `/model` 命令管理。
-- Host 半侧是空实现，只作为 Loader 的入口占位；不联网、不持久化。
+- Host 半侧不联网；模块三只读会话日志，模块二只把两个档位字段写到 `<DSH_HOME>/dsh-limbs/model-settings.json`。
+- 模块二跨设备同步需要 DSH 账号后端接口，当前仅同一 Host 多窗口同步。
 - 不渲染 `conversation.input.model.label` / `.options` 子槽的第三方贡献。
 - 已寻址的 subagent 会话不暴露该座位。
