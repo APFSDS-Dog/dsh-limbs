@@ -237,6 +237,7 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 - 模块三不发送任何模型请求，报告在本地算完直接返回。
 - 所有模型数据来自官方 `ctx.modelDirectories`（底层 `session.modelCatalog` / `session.selectModel`），插件自己不维护第二份目录。
 - 没有外部网络请求；`LIMBS_META` 是编译在文件里的静态表，不是远程拉取。
+- 模块七（[lib/handoff.js](lib/handoff.js) 的窗口交接）**当前只读**：`assemble` 读 `PROJECT_PROGRESS.md` / `PROJECT_STATUS.md` / 最新 devlog 后按 cwd 注入，`lookup` 按 id 取冷存档，`commit` 只 dry-run 打印、**不写任何工程文件**。
 
 ## 已知限制
 
@@ -254,7 +255,8 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 ```
 package.json        # bundle 清单：dsh.bundle.patch + dsh.client
 cordis.patch.yml    # 加载器补丁：插入 dsh-limbs 条目
-lib/host.js         # Host 半侧：模块三复盘分析器 + 模块二保存接口
+lib/host.js         # Host 半侧：模块三复盘分析器 + 模块二保存接口 + 模块七挂载点
+lib/handoff.js      # 模块七：窗口交接（assemble / lookup / commit dry-run，纯 Host 半边）
 lib/client.js       # Client 半侧：座位注册 + 双栏抽屉 + 模型管理页 + 全部 CSS
 lib/model-management/levels.js  # 模块二档位单一真源 + 旧配置映射
 locale/en.json      # 插件列表标题/描述（英文）
@@ -279,7 +281,9 @@ $env:ELECTRON_RUN_AS_NODE='1'
 & '<DSH 可执行文件>' .dev\postmortem-test.mjs
 & '<DSH 可执行文件>' .dev\postmortem-test.mjs --print   # 附带打印一份样例报告
 & '<DSH 可执行文件>' .dev\model-management-test.mjs     # 模块二：101 条断言
+& '<DSH 可执行文件>' .dev\open-settings-test.mjs        # 设置跳转回归
 & '<DSH 可执行文件>' .dev\ui-shell-test.mjs             # 模块三 UI 回归：48 条
+& '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七：72 条（含打印拼装文本与 dry-run 报告）
 & '<DSH 可执行文件>' tools\render-check.mjs             # 模块一选择器回归
 ```
 

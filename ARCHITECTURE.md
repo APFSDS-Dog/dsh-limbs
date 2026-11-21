@@ -117,3 +117,5 @@ lib/xxx  →  （加载 / 导入）  →  （运行期结构）  →  （使用�
 8. **不许顶掉账号行的入口** —— 这个构建把 `settings.launcher` 让给了账号行。换视觉效果时注意别把账号入口挤掉。
 9. **Host 半侧不联网**：`lib/host.js` 只读写本地状态与 `<DSH_HOME>` 下的文件；要联网的能力一律走 Client 侧显式请求。
 10. **改 `lib/client.js` 后必须刷新窗口、改 `lib/host.js` 后必须重启 DSH** —— 两者热重载行为不同，别混。
+11. **模块七（`lib/handoff.js`）不写工程文件**：`assemble` / `lookup` 只读，`commit` 只 dry-run。要打开真写，先补齐口令令牌（D0-1）+ `ctx.sandboxPolicy` 权限档 + 写后自检（U7）三件，缺一件就会静默失败或污染台账。
+12. **模块七按 cwd 注入**：走 `ctx.on('agent/pre-step')`，**不用** `ctx.systemPrompt.section()` —— 后者没有 cwd、注册是全局的，会把 A 项目的任务账注入 B 项目。
