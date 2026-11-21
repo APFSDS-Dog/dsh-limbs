@@ -54,7 +54,7 @@
 |---|---|---|
 | JS / MJS 源文件 | 5 个（`lib/` 4 · `tools/` 1） | `find lib tools -name "*.js" -o -name "*.mjs"` |
 | PowerShell 工具 | 6 个（真机操作用） | `ls tools/*.ps1` |
-| 文档数 | 扫描 32 份 | `pwsh -File ./check-docs.ps1` |
+| 文档数 | 扫描 33 份 | `pwsh -File ./check-docs.ps1` |
 | 文档自检 | **14/14 通过**（2 项因技能未装跳过） | 同上 —— ⚠️ **不能用 `python check_docs.py`**，本机 `python` 是 WindowsApps 占位桩 |
 | 依赖 / 插件 | 无自带依赖（`node_modules` 不进包）；peer 为宿主提供的 `cordis` / `typert-protocol` / `react` | `package.json` 的 `peerDependencies` |
 | 离线测试 | 五套：模型管理 / UI 壳 / 复盘 / 设置跳转 / 窗口交接，另有选择器回归 | `$env:ELECTRON_RUN_AS_NODE='1'; & '<DSH exe>' .dev\<test>.mjs`（清单见 `README.md` §开发） |
