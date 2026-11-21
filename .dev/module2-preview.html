@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dsh-limbs 模块二预览</title>
+  <style>
+    :root{
+      --dsw-alias-bg-base:#ffffff;--dsw-alias-bg-layer-1:#ffffff;--dsw-alias-bg-layer-2:#f4f6f8;
+      --dsw-alias-bg-overlay:#ffffff;--dsw-alias-border-l1:rgba(0,0,0,.15);--dsw-alias-border-l2:#c8ccd1;
+      --dsw-alias-brand-primary:#4f8cff;--dsw-alias-label-primary:#0f1115;--dsw-alias-label-secondary:#57606a;
+      --dsw-alias-label-tertiary:#8b949e;--dsw-alias-label-dimmed:#9aa0a6;
+      --dsw-alias-state-success-primary:#1a7f37;--dsw-alias-state-warn-primary:#bf8700;
+      --dsw-alias-state-warn-label:#8a6100;--dsw-alias-state-error-primary:#cf222e;
+      --dsw-alias-interactive-bg-hover:rgba(127,127,127,.12);
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --dsw-alias-bg-base:#151517;--dsw-alias-bg-layer-1:#1b1b1e;--dsw-alias-bg-layer-2:#242427;
+        --dsw-alias-bg-overlay:#1f1f22;--dsw-alias-border-l1:rgba(255,255,255,.16);--dsw-alias-border-l2:#4a4a50;
+        --dsw-alias-label-primary:#f9fafb;--dsw-alias-label-secondary:#c4c7cc;--dsw-alias-label-tertiary:#9aa0a6;
+        --dsw-alias-interactive-bg-hover:rgba(255,255,255,.1);
+      }
+    }
+    html,body{margin:0;height:100%;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);
+      font-family:"Microsoft YaHei UI","Segoe UI",system-ui,sans-serif}
+    #root{min-height:100%;padding:28px 24px 80px;box-sizing:border-box}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="./node_modules/react/umd/react.development.js"></script>
+  <script src="./node_modules/react-dom/umd/react-dom.development.js"></script>
+  <script>
+    localStorage.setItem('dsh-limbs:last-model', JSON.stringify({
+      name: 'DeepSeek V4.1 Flash', provider: 'deepseek-account', model: 'deepseek-v4.1-flash',
+      maxSupported: false, updatedAt: Date.now(),
+    }))
+    window.__ModuleLoader__ = { load: (spec) => { window.__limbsSpec = spec } }
+  </script>
+  <script src="../lib/client.js"></script>
+  <script>
+    const plugin = window.__limbsSpec.factory((name) => {
+      if (name === 'react') return React
+      throw new Error('unexpected require: ' + name)
+    })
+    const registry = []
+    const slots = {
+      inject: (_key, callback) => { callback(); return () => {} },
+      register: (options, component) => { registry.push({ options, component }); return () => {} },
+    }
+    const ctx = {
+      get: (name) => (name === 'slots' ? slots : undefined),
+      effect: (fn) => { fn(); return () => {} },
+    }
+    plugin.apply(ctx)
+    const entry = registry.find((row) => row.options.id === 'limbs-model')
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(entry.component))
+  </script>
+</body>
+</html>

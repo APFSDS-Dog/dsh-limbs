@@ -1,5 +1,12 @@
 # dev-only artifacts (not part of the bundle)
-.dev/
+#
+# .dev/ 里的**测试脚本要入库**：679 行测试是「怎么验证」的唯一载体，
+# 曾经因为不进 git 丢过一次（被压成一行、无备份，只能凭记忆重写）。
+# 发布边界由 package.json 的 `files` 白名单控制，不需要 gitignore 兜底。
+# 所以只忽略 .dev 的依赖目录（4.8MB，大头），脚本本身照常入库。
+.dev/node_modules/
 shots/
 node_modules/
-pnpm-lock.yaml
+# ⚠️ 锚定到仓库根：不锚定的话它也会忽略 .dev/pnpm-lock.yaml，
+# 而那把锁是 .dev 测试环境的可复现凭据，必须入库。
+/pnpm-lock.yaml
