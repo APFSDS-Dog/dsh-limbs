@@ -369,7 +369,16 @@ const row = renderLedgerRow('t-20261121-01', {
 })
 check('账行渲染成六列', row.split('|').filter(cell => cell.trim() !== '').length === 6
   && row.startsWith('| `t-20261121-01` |') && row.endsWith(' |'), row)
-check('doing 的存档列写 —（没有冷存档）', row.includes('| — |'), row)
+
+// ⚠️ 回归断言：这里曾经写错过。`存档` 列的判据是「**有没有 devlog**」，
+// 不是「状态是不是 done」——真机首跑就撞上：`doing` 的子任务写了 devlog，账行却标 `—`。
+// 原断言写的是「doing 就该标 —」，等于把 bug 钉进了测试。见 t-20261121-03 todos 第 1 条。
+check('子任务有 devlog → 存档列写 id（doing 也一样）',
+  row.includes('| `t-20261121-01` | 明早决策写盘 |'), row)
+check('模块级父任务（无 devlog）→ 存档列写 —',
+  renderLedgerRow('t-20261120-01', {
+    title: '模块七 窗口交接', status: 'doing', conclusion: '真机真写成功', next: '看子任务',
+  }, { hasDevlog: false }).includes('| — |'))
 
 const dry = await dryRunCommit({
   projectRoot: probeRoot,
@@ -659,10 +668,18 @@ await writeFile(join(cloneRoot, '.dsh', 'handoff.yaml'), 'write: true\nledgerRec
 
 // ── 真仓库必须没被本次测试碰过 ──────────────────────────────────────
 check('真仓库账表仍是我手写的版本（没做真写测试）',
-  (await readFile(join(root, 'PROJECT_PROGRESS.md'), 'utf8')).includes('模块七 写盘段'))
-check('真仓库没有 .dsh/handoff.yaml（真写默认关）',
+  (await readFile(join(root, 'PROJECT_PROGRESS.md'), 'utf8')).includes('.dev 纳入版本控制'))
+
+// `.dsh/handoff.yaml` 现在**存在**（真机已开真写，见 t-20261121-03），
+// 所以不能断言「文件不存在」。真正要守的是：它**不入 git**。
+// 理由：`write: true` 入库 = 默认允许真写，别人 clone 下来直接能改台账。
+check('项目配置存在时也不入 git（write: true 不能被共享）',
   await readFile(join(root, '.dsh', 'handoff.yaml'), 'utf8')
-    .then(() => false, () => true))
+    .then(async () => {
+      // 用 Node 自己判：git check-ignore 需要 git，但这里能拿到 .gitignore 的真源。
+      const ignore = await readFile(join(root, '.gitignore'), 'utf8')
+      return /^\/?\.dsh\/handoff\.yaml\s*$/m.test(ignore)
+    }, () => true))
 
 // 仓库本体也必须没被碰过：关键三份的 mtime 不比测试开始前新。
 const devlogDirStat = await stat(join(root, 'Docs', 'devlog'))

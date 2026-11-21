@@ -54,7 +54,7 @@
 |---|---|---|
 | JS / MJS 源文件 | 5 个（`lib/` 4 · `tools/` 1） | `find lib tools -name "*.js" -o -name "*.mjs"` |
 | PowerShell 工具 | 6 个（真机操作用） | `ls tools/*.ps1` |
-| 文档数 | 扫描 31 份 | `pwsh -File ./check-docs.ps1` |
+| 文档数 | 扫描 32 份 | `pwsh -File ./check-docs.ps1` |
 | 文档自检 | **14/14 通过**（2 项因技能未装跳过） | 同上 —— ⚠️ **不能用 `python check_docs.py`**，本机 `python` 是 WindowsApps 占位桩 |
 | 依赖 / 插件 | 无自带依赖（`node_modules` 不进包）；peer 为宿主提供的 `cordis` / `typert-protocol` / `react` | `package.json` 的 `peerDependencies` |
 | 离线测试 | 五套：模型管理 / UI 壳 / 复盘 / 设置跳转 / 窗口交接，另有选择器回归 | `$env:ELECTRON_RUN_AS_NODE='1'; & '<DSH exe>' .dev\<test>.mjs`（清单见 `README.md` §开发） |
@@ -71,11 +71,14 @@
 | `lib/` | 全部源码：Host 半边 `host.js` · Client 半边 `client.js` · `model-management/` | — |
 | `tools/` | 真机操作与回归脚本（PowerShell + mjs） | — |
 | `locale/` | 插件多语言 | — |
-| `.dev/` | 离线测试与只读排查脚本 | ✅ 忽略 |
+| `.dev/` | 离线测试与只读排查脚本 | ⚠️ 仅忽略 `node_modules/`（脚本入库） |
+| `.dsh/` | 项目级配置（`handoff.yaml` = 模块七真写闸） | ✅ 整份忽略 |
 | `shots/` | 真机证据图 | ✅ 忽略 |
 | `_tmp/` | 草稿与临时产物 | ✅ 建议忽略 |
 
 > 本项目**没有** `Tests/`、`_delivery/`、`_archive/` —— 测试放在 `.dev/`（不进包），交付物直接走 GitHub Release。**不为了齐整去建空目录。**
+>
+> **`.dev/` 的脚本为什么入库**（2026-11-21）：它们是「怎么验证」的唯一载体，曾因不进 git 丢过一次（被压成一行、无备份）。发布边界由 `package.json` 的 `files` 白名单控制，不需要 gitignore 兜底。`.dsh/handoff.yaml` 相反 —— `write: true` 入库等于「默认允许真写」，必须整份忽略。
 
 ---
 

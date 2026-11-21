@@ -10,3 +10,8 @@ node_modules/
 # ⚠️ 锚定到仓库根：不锚定的话它也会忽略 .dev/pnpm-lock.yaml，
 # 而那把锁是 .dev 测试环境的可复现凭据，必须入库。
 /pnpm-lock.yaml
+
+# .dsh/handoff.yaml 是模块七（U5）的**项目级配置闸**，不是共享配置：
+# `write: true` 一旦入库 = 默认允许真写，别人 clone 下来直接能改台账。
+# 所以整份不入库。示例见 Docs/design/MODULE7-HANDOFF.md §5.6。
+/.dsh/handoff.yaml
