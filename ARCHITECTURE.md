@@ -4,7 +4,7 @@
 > **`DOCS_LAYOUT.md` 管「文档该放哪」；本文件管「工程长什么样、代码规则是什么」。**
 > 那边管文档归属，这边管工程分层 —— 不重复。
 >
-> 最后核对：2026-11-21
+> 最后核对：2026-11-25
 
 ---
 
@@ -119,3 +119,6 @@ lib/xxx  →  （加载 / 导入）  →  （运行期结构）  →  （使用�
 10. **改 `lib/client.js` 后必须刷新窗口、改 `lib/host.js` 后必须重启 DSH** —— 两者热重载行为不同，别混。
 11. **模块七（`lib/handoff.js`）不写工程文件**：`assemble` / `lookup` 只读，`commit` 只 dry-run。要打开真写，先补齐口令令牌（D0-1）+ `ctx.sandboxPolicy` 权限档 + 写后自检（U7）三件，缺一件就会静默失败或污染台账。
 12. **模块七按 cwd 注入**：走 `ctx.on('agent/pre-step')`，**不用** `ctx.systemPrompt.section()` —— 后者没有 cwd、注册是全局的，会把 A 项目的任务账注入 B 项目。
+13. **模块八的配置通道只碰一个文件**：`lib/handoff-config.js` 的读写范围**只有** `<项目根>/.dsh/handoff.yaml`；Client 不直接写文件。PUT 必须是**补丁**（只含提交的键），从默认值起算会把没提交的 `write: true` 抹掉（真机踩过）。
+14. **桌面端的两条特殊事实**（模块八目视时踩出来的）：① 桌面端**不经过** Host 渲染 `index.html`，`webServer.tapIndex` 无效 —— 要给页面送全局，须订阅 `webserver/index-inject` 推一行 `kind: 'global'`；② 桌面主窗口 Origin 是 `dsh-app://app`，同源校验必须放行它（列表只有这一项），否则桌面端每个 `/limbs/*` 请求都 403。
+15. **客户端一个包只有一个 bundle**：`dsh.client` 没有 entry 字段，浏览器侧 `require` 只解析已注册包名、不支持相对路径。所以模块八的 UI 只能留在 `lib/client.js` 里（新开一节 + 新 style 块），不能另开一个 `<x>.client.js` 再 import。

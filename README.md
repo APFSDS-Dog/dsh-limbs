@@ -255,9 +255,10 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 ```
 package.json        # bundle 清单：dsh.bundle.patch + dsh.client
 cordis.patch.yml    # 加载器补丁：插入 dsh-limbs 条目
-lib/host.js         # Host 半侧：模块三复盘分析器 + 模块二保存接口 + 模块七挂载点
+lib/host.js         # Host 半侧：模块三复盘分析器 + 模块二保存接口 + 模块七/八挂载点
 lib/handoff.js      # 模块七：窗口交接（assemble / lookup / commit dry-run，纯 Host 半边）
-lib/client.js       # Client 半侧：座位注册 + 双栏抽屉 + 模型管理页 + 全部 CSS
+lib/handoff-config.js # 模块八：项目管理配置接口（/limbs/handoff-config + /limbs/handoff-project）
+lib/client.js       # Client 半侧：座位注册 + 双栏抽屉 + 模型管理页 + 模块八项目管理页 + 全部 CSS
 lib/model-management/levels.js  # 模块二档位单一真源 + 旧配置映射
 locale/en.json      # 插件列表标题/描述（英文）
 locale/zh.json      # 插件列表标题/描述（中文）
@@ -283,11 +284,18 @@ $env:ELECTRON_RUN_AS_NODE='1'
 & '<DSH 可执行文件>' .dev\model-management-test.mjs     # 模块二：101 条断言
 & '<DSH 可执行文件>' .dev\open-settings-test.mjs        # 设置跳转回归
 & '<DSH 可执行文件>' .dev\ui-shell-test.mjs             # 模块三 UI 回归：48 条
-& '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七：72 条（含打印拼装文本与 dry-run 报告）
-& '<DSH 可执行文件>' tools\render-check.mjs             # 模块一选择器回归
+& '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七：113 条（含打印拼装文本与 dry-run 报告）
+& '<DSH 可执行文件>' .dev\handoff-config-test.mjs      # 模块八段 1：inject 开关 + 配置接口：105 条
+& '<DSH 可执行文件>' .dev\projects-ui-test.mjs         # 模块八段 2：左栏入口 + 一级页：64 条
+& '<DSH 可执行文件>' .dev\projects-detail-test.mjs     # 模块八段 3：二级页：55 条
+& '<DSH 可执行文件>' tools\render-check.mjs            # 模块一选择器回归
 ```
 
-调试样式最快的办法：DevTools 里直接改 `<style id="dsh-limbs-styles">`，满意后再同步回 `lib/client.js` 的 `CSS` 模板字符串。
+调试样式最快的办法：DevTools 里直接改 `<style id="dsh-limbs-styles">`（或模块八的 `dsh-limbs-m8-styles`），满意后再同步回 `lib/client.js` 的 `CSS` / `M8_CSS` 模板字符串。
+
+> 模块八（项目管理）的 Host 侧只在 `lib/handoff-config.js` 里动 `<项目根>/.dsh/handoff.yaml`；
+> Client 不直接写文件。桌面端不经过 Host 渲染 `index.html`，所以页面全局令牌走
+> `webserver/index-inject` 的结构化注入，`tapIndex` 那条是 Web 部署才用。
 
 ## License
 
