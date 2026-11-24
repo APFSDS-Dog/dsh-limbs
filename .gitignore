@@ -7,6 +7,7 @@
 .dev/node_modules/
 shots/
 node_modules/
+_tmp/
 # ⚠️ 锚定到仓库根：不锚定的话它也会忽略 .dev/pnpm-lock.yaml，
 # 而那把锁是 .dev 测试环境的可复现凭据，必须入库。
 /pnpm-lock.yaml

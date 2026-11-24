@@ -18,6 +18,7 @@
   "files": [
     "lib/host.js",
     "lib/handoff.js",
+    "lib/handoff-config.js",
     "lib/client.js",
     "lib/model-management",
     "cordis.patch.yml",
