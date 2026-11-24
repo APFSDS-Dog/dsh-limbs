@@ -25,6 +25,7 @@ import {
 } from '../lib/handoff.js'
 
 import {
+  HANDOFF_BRIDGE_ROUTE,
   HANDOFF_BRIDGE_GLOBAL,
   HANDOFF_CONFIG_KEYS,
   HANDOFF_CONFIG_ROUTE,
@@ -34,6 +35,7 @@ import {
   readProjectSummary,
   renderHandoffYaml,
   resolveProjectPath,
+  serveHandoffBridge,
   serveHandoffConfig,
   serveHandoffProject,
   validateConfigPatch,
@@ -232,6 +234,16 @@ try {
     check('四键齐全的合法值被接受', validateConfigPatch({
       inject: false, write: true, ledgerRecent: 5, checkCommand: 'pwsh -File ./check-docs.ps1',
     }).ok === true)
+    // 返回的必须是**补丁**：只含提交的键。否则「只改 inject」会把 write 抹成默认 false
+    // —— 真机上刚点一下热注入开关，本项目的 write: true 就没了。
+    const onlyInject = validateConfigPatch({ inject: false })
+    check('只提交 inject 时补丁也只含 inject',
+      onlyInject.ok === true && JSON.stringify(Object.keys(onlyInject.patch ?? {})) === '["inject"]',
+      JSON.stringify(onlyInject.patch))
+    const onlyLedger = validateConfigPatch({ ledgerRecent: 7 })
+    check('只提交 ledgerRecent 时补丁也只含它',
+      onlyLedger.ok === true && JSON.stringify(Object.keys(onlyLedger.patch ?? {})) === '["ledgerRecent"]',
+      JSON.stringify(onlyLedger.patch))
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -293,6 +305,20 @@ try {
     )
     check('跨站来源 → 403', crossOrigin.status === 403, String(crossOrigin.status))
     check('跨站来源的响应码是 cross-origin', (await crossOrigin.json()).code === 'cross-origin')
+
+    // 桌面端：页面跑在 dsh-app://app，外壳转发请求时保留这个 Origin。
+    // 只认同源会让桌面端每个请求都 403 → 页面显示「接口没挂上」（真机踩过）。
+    const desktopOrigin = await serveHandoffConfig(
+      requestFor(HANDOFF_CONFIG_ROUTE, { token: TOKEN, origin: 'dsh-app://app' }),
+      { token: TOKEN, registry },
+    )
+    check('桌面主窗口 origin（dsh-app://app）被放行', desktopOrigin.status === 200,
+      String(desktopOrigin.status))
+    const otherAppOrigin = await serveHandoffConfig(
+      requestFor(HANDOFF_CONFIG_ROUTE, { token: TOKEN, origin: 'dsh-app://shell' }),
+      { token: TOKEN, registry },
+    )
+    check('别的 dsh-app host 仍被拒', otherAppOrigin.status === 403, String(otherAppOrigin.status))
 
     const listResponse = await serveHandoffConfig(
       requestFor(HANDOFF_CONFIG_ROUTE, { token: TOKEN, origin: 'http://127.0.0.1:63751' }),
@@ -470,6 +496,7 @@ try {
 
     const routes = []
     const tapped = []
+    const listeners = new Map()
     const fakeWeb = {
       register: route => { routes.push(route); return () => {} },
       tapIndex: transform => { tapped.push(transform); return () => {} },
@@ -478,12 +505,17 @@ try {
     const bridge = createHandoffConfigBridge({
       get: name => (name === 'webServer' ? fakeWeb : name === 'workspaceRegistry' ? service : undefined),
       effect: fn => fn(),
+      on: (event, listener) => {
+        if (!listeners.has(event)) listeners.set(event, [])
+        listeners.get(event).push(listener)
+        return () => {}
+      },
     })
-    check('挂载返回两条路由',
-      bridge?.routes?.length === 2 && routes.map(r => r.path).sort().join(',')
-        === [HANDOFF_CONFIG_ROUTE, HANDOFF_PROJECT_ROUTE].sort().join(','),
+    check('挂载返回三条路由（两个数据接口 + 一个令牌引导）',
+      bridge?.routes?.length === 3 && routes.map(r => r.path).sort().join(',')
+        === [HANDOFF_CONFIG_ROUTE, HANDOFF_PROJECT_ROUTE, HANDOFF_BRIDGE_ROUTE].sort().join(','),
       JSON.stringify(routes.map(r => r.path)))
-    check('两条路由都是 exact', routes.every(route => route.kind === 'exact'))
+    check('三条路由都是 exact', routes.every(route => route.kind === 'exact'))
     check('令牌是随机串且给了 index 注入',
       typeof bridge.token === 'string' && bridge.token.length >= 16 && tapped.length === 1,
       String(bridge.token?.length))
@@ -495,6 +527,63 @@ try {
       && payload.configPath === HANDOFF_CONFIG_ROUTE && payload.projectPath === HANDOFF_PROJECT_ROUTE,
       payloadText)
     check('桥接 JSON 做了 < 转义', !payloadText.includes('<'))
+
+    // ── 桌面端路径：结构化注入行（这是真机实际走的那条）───────────────
+    const indexInjectListeners = listeners.get('webserver/index-inject') ?? []
+    check('订阅了 webserver/index-inject（桌面端注入靠它）', indexInjectListeners.length === 1,
+      String(indexInjectListeners.length))
+    const table = []
+    for (const listener of indexInjectListeners) listener(table, { id: 'peer-1' })
+    check('注入表里多了一行 global', table.length === 1 && table[0].kind === 'global',
+      JSON.stringify(table))
+    check('行名就是页面桥接全局', table[0]?.name === HANDOFF_BRIDGE_GLOBAL, String(table[0]?.name))
+    check('行的值带令牌与两条路由',
+      table[0]?.value?.token === bridge.token
+      && table[0]?.value?.configPath === HANDOFF_CONFIG_ROUTE
+      && table[0]?.value?.projectPath === HANDOFF_PROJECT_ROUTE,
+      JSON.stringify(table[0]?.value))
+    check('同一个令牌（index 注入与结构化注入必须一致，否则页面会拿到旧令牌）',
+      JSON.parse(payloadText).token === table[0]?.value?.token, '')
+    // 二次 emit 不该叠加：每次 emit 都是新表（框架每次 render 给新数组）。
+    const table2 = []
+    for (const listener of indexInjectListeners) listener(table2)
+    check('第二次 emit 也是恰好一行（不累积）', table2.length === 1, String(table2.length))
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  log('== 10b. 令牌引导：/limbs/handoff-bridge 只回令牌与路由名')
+  // ═══════════════════════════════════════════════════════════════════════
+  {
+    const ok = await serveHandoffBridge(
+      requestFor(HANDOFF_BRIDGE_ROUTE, { origin: 'http://127.0.0.1:63751' }),
+      { token: TOKEN },
+    )
+    const body = await ok.json()
+    check('同源 GET 换到令牌', ok.status === 200 && body.token === TOKEN,
+      JSON.stringify({ status: ok.status, hasToken: typeof body.token === 'string' }))
+    check('引导只回令牌与两条路由名，不带项目数据',
+      JSON.stringify(Object.keys(body).sort())
+        === JSON.stringify(['configPath', 'ok', 'projectPath', 'token']), JSON.stringify(Object.keys(body)))
+    check('引导回的路径就是两条数据接口',
+      body.configPath === HANDOFF_CONFIG_ROUTE && body.projectPath === HANDOFF_PROJECT_ROUTE)
+
+    const cross = await serveHandoffBridge(
+      requestFor(HANDOFF_BRIDGE_ROUTE, { origin: 'http://evil.example' }),
+      { token: TOKEN },
+    )
+    check('跨站来源换令牌被拒', cross.status === 403, String(cross.status))
+
+    const desktop = await serveHandoffBridge(
+      requestFor(HANDOFF_BRIDGE_ROUTE, { origin: 'dsh-app://app' }),
+      { token: TOKEN },
+    )
+    check('桌面主窗口 origin 能换令牌', desktop.status === 200, String(desktop.status))
+
+    const put = await serveHandoffBridge(
+      requestFor(HANDOFF_BRIDGE_ROUTE, { method: 'PUT', token: TOKEN }),
+      { token: TOKEN },
+    )
+    check('引导路由只认 GET', put.status === 405, String(put.status))
   }
 
   // ═══════════════════════════════════════════════════════════════════════
