@@ -237,7 +237,8 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 - 模块三不发送任何模型请求，报告在本地算完直接返回。
 - 所有模型数据来自官方 `ctx.modelDirectories`（底层 `session.modelCatalog` / `session.selectModel`），插件自己不维护第二份目录。
 - 没有外部网络请求；`LIMBS_META` 是编译在文件里的静态表，不是远程拉取。
-- 模块七（[lib/handoff.js](lib/handoff.js) 的窗口交接）**当前只读**：`assemble` 读 `PROJECT_PROGRESS.md` / `PROJECT_STATUS.md` / 最新 devlog 后按 cwd 注入，`lookup` 按 id 取冷存档，`commit` 只 dry-run 打印、**不写任何工程文件**。
+- 模块七（[lib/handoff.js](lib/handoff.js) 的窗口交接）：`assemble` 读 `PROJECT_PROGRESS.md` / `PROJECT_STATUS.md` / 最新 devlog 后按 cwd 注入，`lookup` 按 id 取冷存档，`commit` 校验一次性令牌后写 devlog + 账行并跑工程自检。
+  令牌由两个入口发：模型侧的 `handoff_request_token`（只按**本轮人类用户消息里有没有授权语**判定，模型改不了 user message 所以无法自问自答）与人工侧的 `/limbs-handoff-token`。令牌落 `<DSH_HOME>/dsh-limbs/handoff-tokens.json`，一次性、30 分钟有效、按会话记账，不进 git。
 
 ## 已知限制
 
@@ -256,7 +257,7 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 package.json        # bundle 清单：dsh.bundle.patch + dsh.client
 cordis.patch.yml    # 加载器补丁：插入 dsh-limbs 条目
 lib/host.js         # Host 半侧：模块三复盘分析器 + 模块二保存接口 + 模块七/八挂载点
-lib/handoff.js      # 模块七：窗口交接（assemble / lookup / commit dry-run，纯 Host 半边）
+lib/handoff.js      # 模块七：窗口交接（assemble / lookup / 令牌 / commit，纯 Host 半边）
 lib/handoff-config.js # 模块八：项目管理配置接口（/limbs/handoff-config + /limbs/handoff-project）
 lib/client.js       # Client 半侧：座位注册 + 双栏抽屉 + 模型管理页 + 模块八项目管理页 + 全部 CSS
 lib/model-management/levels.js  # 模块二档位单一真源 + 旧配置映射
@@ -284,7 +285,7 @@ $env:ELECTRON_RUN_AS_NODE='1'
 & '<DSH 可执行文件>' .dev\model-management-test.mjs     # 模块二：101 条断言
 & '<DSH 可执行文件>' .dev\open-settings-test.mjs        # 设置跳转回归
 & '<DSH 可执行文件>' .dev\ui-shell-test.mjs             # 模块三 UI 回归：48 条
-& '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七：113 条（含打印拼装文本与 dry-run 报告）
+& '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七：173 条（含打印拼装文本与 dry-run 报告、令牌五条）
 & '<DSH 可执行文件>' .dev\handoff-config-test.mjs      # 模块八段 1：inject 开关 + 配置接口：105 条
 & '<DSH 可执行文件>' .dev\projects-ui-test.mjs         # 模块八段 2：左栏入口 + 一级页：64 条
 & '<DSH 可执行文件>' .dev\projects-detail-test.mjs     # 模块八段 3：二级页：55 条

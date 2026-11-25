@@ -20,21 +20,30 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+  AUTHORIZATION_PHRASES,
   DEFAULT_HANDOFF_CONFIG,
   DEVLOG_SECTIONS,
+  HANDOFF_TOKEN_TTL_MS,
   LEDGER_COLUMNS,
   LEDGER_RECENT_LIMIT,
   LEDGER_STATUSES,
+  REQUEST_TOKEN_TOOL_NAME,
+  applyHandoffTools,
   assertWritablePolicy,
+  authorizationFromTurn,
   commitHandoff,
   composeHotLayer,
+  consumeHandoffToken,
   createHandoffAssembler,
   dateStamp,
   devlogFileName,
   dryRunCommit,
+  handoffTokenFile,
+  isHumanUserSource,
   issueHandoffToken,
   latestDevlogFile,
   lookupDevlog,
+  matchAuthorizationPhrase,
   nextTaskId,
   parseDevlogSections,
   parseHandoffYaml,
@@ -47,6 +56,8 @@ import {
   renderDryRunReport,
   renderLedgerRow,
   renderLedgerWindow,
+  renderTokenReport,
+  requestHandoffToken,
   resolveHandoffConfig,
   searchLedger,
   upsertLedgerRow,
@@ -653,7 +664,356 @@ await writeFile(join(cloneRoot, '.dsh', 'handoff.yaml'), 'write: true\nledgerRec
     threw !== null && threw.includes('无法确认工作区可写'), String(threw))
 }
 
-// ── upsert：同 id 走替换分支而不是新增一行 ──────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+log('== 6. 令牌死锁修复：handoff_request_token（本轮 user message 判定）')
+// ═══════════════════════════════════════════════════════════════════════
+//
+// 这一段的判据全部来自「事件流」本身，所以用**造出来的事件**当成
+// `session.snapshotEvents()` 的产物。真机那一侧（工具回调里真的能读到）由
+// `.dev/RUNTIME-CHECK-token.md` 那条清单在运行中的会话里验，不在这里。
+
+/** 造一条 `user/message` 事件（形状照 `SessionEventMap['user/message']`）。 */
+function userEvent(seq, { source, text }) {
+  return {
+    type: 'user/message',
+    seq,
+    time: 0,
+    data: {
+      id: `m-${seq}`,
+      role: 'user',
+      content: [{ type: 'text', text }],
+      source,
+    },
+    surfaceOp: 'append',
+  }
+}
+
+const RPC = 'rpc-0001'
+/** 界面上真打进来的人类消息（官方 `'user-rpc'` 源：kind=user + rpcId）。 */
+const humanEvent = (seq, text) => userEvent(seq, { source: { kind: 'user', rpcId: RPC }, text })
+/** 模块七热层注入的那条（`createLocalUserMessage`：kind=user，**没有 rpcId**）。 */
+const injectedEvent = (seq, text) => userEvent(seq, { source: { kind: 'user' }, text })
+/** 定时任务投递（`dsh-schedule` 的 source）。 */
+const scheduleEvent = (seq, text) => userEvent(seq, { source: { kind: 'schedule' }, text })
+/** 自动续轮（goal 轮次）。 */
+const goalEvent = (seq, text) => userEvent(seq, { source: { kind: 'goal', goalId: 'g', revision: 1, round: 1 }, text })
+
+// ── 判据本身：人类输入的识别 ───────────────────────────────────────
+{
+  check('人类输入判据 = kind:user + rpcId', isHumanUserSource({ kind: 'user', rpcId: RPC }))
+  check('热层注入（kind:user 无 rpcId）不算人类输入',
+    !isHumanUserSource({ kind: 'user' }))
+  check('定时任务的 source（kind:schedule）不算人类输入',
+    !isHumanUserSource({ kind: 'schedule' }))
+  check('自动续轮的 source（kind:goal）不算人类输入',
+    !isHumanUserSource({ kind: 'goal', goalId: 'g', revision: 1, round: 1 }))
+  check('source 缺失不炸也不当人类输入', !isHumanUserSource(undefined))
+
+  check('白名单含「任务收尾」', AUTHORIZATION_PHRASES.includes('任务收尾'))
+  // 判据必须是「整句就是口令」，不是「包含口令」。真机实测踩过这个坑：
+  // 本轮 user message 里写着「项目主说「任务收尾」后…」，按子串判就会被判成授权。
+  check('整句「任务收尾」命中', matchAuthorizationPhrase('任务收尾') === '任务收尾')
+  check('「好了，任务收尾吧。」命中（语气字在两头）',
+    matchAuthorizationPhrase('好了，任务收尾吧。') === '任务收尾')
+  check('「那就收尾吧」命中', matchAuthorizationPhrase('那就收尾吧') === '收尾吧')
+  check('「收尾吧」命中', matchAuthorizationPhrase('收尾吧') === '收尾吧')
+  check('普通闲聊不命中', matchAuthorizationPhrase('这个按钮颜色有点怪') === null)
+  check('反悔语「先别收尾吧」不命中', matchAuthorizationPhrase('先别收尾吧，我看看') === null)
+  check('反悔语「不要收尾吧」不命中', matchAuthorizationPhrase('不要收尾吧') === null)
+  check('「我说收尾吧」不命中（前缀不是纯语气字）', matchAuthorizationPhrase('我说收尾吧') === null)
+  // 最关键的回归：描述性长句里的口令字样**不算授权**。
+  check('真机那条任务描述不命中（描述 ≠ 下口令）',
+    matchAuthorizationPhrase('令牌只能由 slash command /limbs-handoff-token 发放……项目主说「任务收尾」后，agent 无法自己拿令牌') === null)
+  check('「现在的令牌机制是「项目主说任务收尾后发令牌」」不命中',
+    matchAuthorizationPhrase('现在的令牌机制是「项目主说任务收尾后发令牌」') === null)
+  check('「我看看收尾吧怎么写的」不命中',
+    matchAuthorizationPhrase('我看看收尾吧怎么写的') === null)
+}
+
+// ── 断言 ①：本轮没有授权语 → 拒，理由含「缺口令」 ───────────────────
+{
+  // 本轮只有热层注入（正文里就写着「任务收尾」这几个字），但没人真打过。
+  // 这正是最容易踩的坑：拿正文当授权 = 热层自己授权自己。
+  const verdict = authorizationFromTurn({
+    events: [humanEvent(0, '修模块七的令牌死锁'), injectedEvent(1, '【模块七】…要收尾请项目主说「任务收尾」'), humanEvent(2, '把测试补上')],
+    openTurnStartSeq: 0,
+    inheritedEventCount: 0,
+  })
+  check('① 本轮有 2 条人类消息但都没有口令 → 判为不授权', verdict.authorized === false,
+    JSON.stringify({ human: verdict.humanMessages }))
+  check('① 理由含「缺口令」', String(verdict.reason).includes('缺口令'), verdict.reason)
+  check('① 理由点明「本轮没有授权语句」', String(verdict.reason).includes('本轮没有授权语句'), verdict.reason)
+
+  const onlyInjected = authorizationFromTurn({
+    events: [injectedEvent(5, '要收尾请项目主说「任务收尾」')],
+    openTurnStartSeq: 0,
+  })
+  check('① 只有热层注入（正文含口令字样）也不授权',
+    onlyInjected.authorized === false, onlyInjected.reason)
+  check('① 热层那条不会算成「人类消息」', onlyInjected.humanMessages === 0,
+    String(onlyInjected.humanMessages))
+
+  const onlySchedule = authorizationFromTurn({
+    events: [scheduleEvent(6, '任务收尾'), goalEvent(7, '任务收尾')],
+    openTurnStartSeq: 0,
+  })
+  check('① 定时任务 / 自动续轮写着口令也不算授权', onlySchedule.authorized === false,
+    onlySchedule.reason)
+
+  // 上一轮有人喊过口令，这一轮没有 —— 不许跨轮复用。
+  const lastTurnOnly = authorizationFromTurn({
+    events: [humanEvent(0, '任务收尾'), injectedEvent(1, '热层'), humanEvent(3, '继续改代码')],
+    openTurnStartSeq: 2,
+  })
+  check('① 上一轮的口令不算本轮授权（只看 openTurnStartSeq 之后）',
+    lastTurnOnly.authorized === false && lastTurnOnly.humanMessages === 1,
+    JSON.stringify({ authorized: lastTurnOnly.authorized, human: lastTurnOnly.humanMessages, from: lastTurnOnly.scannedSeqFrom }))
+
+  const noTurn = authorizationFromTurn({ events: [humanEvent(0, '任务收尾')], openTurnStartSeq: null })
+  check('① 没有打开的轮次 → 不授权', noTurn.authorized === false && String(noTurn.reason).includes('缺口令'),
+    noTurn.reason)
+
+  const inherited = authorizationFromTurn({
+    events: [humanEvent(0, '任务收尾')],
+    openTurnStartSeq: 0,
+    inheritedEventCount: 1,
+  })
+  check('① fork 继承来的人类原话不算授权', inherited.authorized === false,
+    inherited.reason)
+
+  const subagent = authorizationFromTurn({ events: [], openTurnStartSeq: 0, origin: 'subagent' })
+  check('① 子代理不能替项目主授权', subagent.authorized === false
+    && String(subagent.reason).includes('子代理'), subagent.reason)
+
+  // 过工具入口（真的走 requestHandoffToken + 真的写盘到临时 DSH_HOME）
+  const noAuthCtx = makeFakeHostCtx({ home: await tempDir('dsh-limbs-noauth-') })
+  const noAuthAgent = {
+    session: {
+      id: 'session-noauth',
+      header: { cwd: root },
+      inheritedEventCount: 0,
+      snapshotEvents: () => [humanEvent(0, '改完记得跑测试'), injectedEvent(1, '要收尾请项目主说「任务收尾」')],
+    },
+  }
+  const noAuth = await requestHandoffToken({
+    ctx: { ...noAuthCtx, get: name => name === 'agents'
+      ? { turnBoundaryOf: () => ({ openTurnStartSeq: 0, lastStepStartSeq: 0, lastStepBoundary: null, lastTurn: 1 }) }
+      : noAuthCtx.get(name) },
+    agent: noAuthAgent,
+  })
+  const noAuthRender = renderTokenReport(noAuth)
+  check('① 工具入口：无授权语不发令牌', noAuth.issued === false, JSON.stringify(noAuth.reason))
+  check('① 工具入口：理由含「缺口令」', String(noAuth.reason).includes('缺口令'), noAuth.reason)
+  check('① 工具入口：返回文本也含「缺口令」', noAuthRender.includes('缺口令'), noAuthRender.slice(0, 200))
+  check('① 工具入口：拒绝时不返回 token 字段', noAuth.token === undefined)
+}
+
+// ── 断言 ②：本轮有授权语 → 发出令牌 ───────────────────────────────
+{
+  const verdict = authorizationFromTurn({
+    events: [humanEvent(0, '这版改完了'), humanEvent(1, '任务收尾')],
+    openTurnStartSeq: 0,
+  })
+  check('② 本轮人类消息里有「任务收尾」→ 判为授权', verdict.authorized === true, verdict.reason)
+  check('② 判据记下命中的短语', verdict.phrase === '任务收尾', String(verdict.phrase))
+
+  // 后到的口令也认（同一轮里先说别的、后说口令）
+  const later = authorizationFromTurn({
+    events: [humanEvent(0, '继续'), injectedEvent(1, 'x'), humanEvent(2, '收尾吧')],
+    openTurnStartSeq: 0,
+  })
+  check('② 同轮后一条说「收尾吧」也授权', later.authorized === true && later.phrase === '收尾吧',
+    JSON.stringify({ ok: later.authorized, phrase: later.phrase }))
+
+  const authHome = await tempDir('dsh-limbs-auth-')
+  const authCtx = makeFakeHostCtx({ home: authHome })
+  const agentsStub = { turnBoundaryOf: () => ({ openTurnStartSeq: 0, lastStepStartSeq: 0, lastStepBoundary: null, lastTurn: 1 }) }
+  const authAgent = {
+    session: {
+      id: 'session-auth',
+      header: { cwd: root },
+      inheritedEventCount: 0,
+      snapshotEvents: () => [humanEvent(0, '任务收尾')],
+    },
+  }
+  const issued = await requestHandoffToken({
+    ctx: { ...authCtx, get: name => name === 'agents' ? agentsStub : authCtx.get(name) },
+    agent: authAgent,
+  })
+  check('② 工具入口：有授权语就发令牌', issued.issued === true, JSON.stringify(issued.reason))
+  check('② 发出的令牌是 32 位十六进制', /^[0-9a-f]{32}$/.test(String(issued.token)), String(issued.token).slice(0, 8))
+  check('② 令牌记在真实会话 id 上（没写死 default）', issued.sessionId === 'session-auth', String(issued.sessionId))
+  check('② 令牌带有效期', typeof issued.expiresAt === 'number' && issued.expiresAt > issued.humanMessages * 0,
+    String(issued.expiresAt))
+  check('② 判据里的短语被带回来', issued.phrase === '任务收尾', String(issued.phrase))
+
+  const report = renderTokenReport(issued)
+  check('② 成功文本里给出令牌', report.includes(String(issued.token)))
+  check('② 成功文本写明一次性与有效期',
+    report.includes('一次') && report.includes(`${Math.round(HANDOFF_TOKEN_TTL_MS / 60000)} 分钟`))
+
+  // ── 断言 ③：拿这个令牌调 handoff_commit → 通过（副本里验）────────
+  await writeFile(join(cloneRoot, '.dsh', 'handoff.yaml'), 'write: true\nledgerRecent: 7\n', 'utf8')
+  const beforeCommit = (await readdir(cloneDevlogDir)).filter(n => n.startsWith('t-')).sort()
+  const committed = await commitHandoff({
+    ctx: { ...authCtx, get: name => name === 'agents' ? agentsStub : authCtx.get(name) },
+    session: { header: { cwd: cloneRoot } },
+    sessionId: issued.sessionId,
+    token: issued.token,
+    projectRoot: cloneRoot,
+    force: true,
+    entry: { ...CLONE_ENTRY, title: '令牌工具真写' },
+  })
+  const afterCommit = (await readdir(cloneDevlogDir)).filter(n => n.startsWith('t-')).sort()
+  check('③ 用工具发的令牌可以真写（wrote=true）', committed.wrote === true,
+    JSON.stringify({ at: committed.refusedAt, reason: committed.reason }))
+  check('③ 副本里 devlog 真的多了一份', afterCommit.length === beforeCommit.length + 1,
+    JSON.stringify(afterCommit))
+  check('③ 写后自检通过', committed.check?.ok === true, String(committed.check?.code))
+
+  // ── 断言 ③-b：不传 session_id 时，记账键必须落到**当前会话**上 ─────────
+  //
+  // ⚠️ 真机撞过的坑：`handoff_request_token` 把令牌记在真实会话 id 上，
+  // 而 `commitHandoff` 当时在没显式传 sessionId 时退回 `'default'` →
+  // 「令牌明明发出去了，提交却说缺口令（已用过）」。这条断言就是守它。
+  {
+    const sameHome = await tempDir('dsh-limbs-samekey-')
+    const sameCtx = makeFakeHostCtx({ home: sameHome })
+    const issuedSame = await issueHandoffToken(sameCtx, { sessionId: 'session-same' })
+    const implicit = await commitHandoff({
+      ctx: sameCtx,
+      session: { header: { id: 'session-same', cwd: cloneRoot } },
+      token: issuedSame.token,
+      projectRoot: cloneRoot,
+      force: true,
+      entry: { ...CLONE_ENTRY, title: '缺省记账键' },
+    })
+    check('③-b 不传 session_id 时按会话 id 记账（不会掉到 default）',
+      implicit.wrote === true || implicit.refusedAt !== 'token',
+      JSON.stringify({ at: implicit.refusedAt, reason: implicit.reason }))
+    check('③-b 该令牌确实被消费掉（不是靠跳过令牌闸通过）',
+      (await consumeHandoffToken(sameCtx, { sessionId: 'session-same', token: issuedSame.token })).ok === false)
+  }
+
+  // ── 断言 ④：同一令牌第二次用 → 拒 ──────────────────────────────
+  const reuse = await commitHandoff({
+    ctx: authCtx, projectRoot: cloneRoot, sessionId: issued.sessionId, token: issued.token,
+    force: true, entry: { ...CLONE_ENTRY, title: '令牌二次使用' },
+  })
+  check('④ 同一令牌第二次用被拒（refusedAt=token）',
+    reuse.wrote === false && reuse.refusedAt === 'token', JSON.stringify({ at: reuse.refusedAt }))
+  check('④ 理由说明「已用过」', String(reuse.reason).includes('已用过'), reuse.reason)
+
+  // ── 断言 ⑤：过期 / 跨会话 → 拒 ─────────────────────────────────
+  {
+    const expireHome = await tempDir('dsh-limbs-expire-')
+    const expireCtx = makeFakeHostCtx({ home: expireHome })
+    // 直接把「已过期」的记录写进令牌文件：issuedAt 早于 TTL，expiresAt 也在过去。
+    const tokenFile = handoffTokenFile(expireCtx)
+    const staleToken = 'deadbeefdeadbeefdeadbeefdeadbeef'
+    await mkdir(dirname(tokenFile), { recursive: true })
+    await writeFile(tokenFile, JSON.stringify({
+      'session-expired': { token: staleToken, issuedAt: 1, expiresAt: 1, used: false },
+    }, null, 2) + '\n', 'utf8')
+
+    const expired = await commitHandoff({
+      ctx: expireCtx, projectRoot: cloneRoot, sessionId: 'session-expired', token: staleToken,
+      force: true, entry: CLONE_ENTRY,
+    })
+    check('⑤ 过期令牌被拒（refusedAt=token）',
+      expired.wrote === false && expired.refusedAt === 'token', JSON.stringify({ at: expired.refusedAt }))
+    check('⑤ 理由说明「已过期」', String(expired.reason).includes('过期'), expired.reason)
+
+    // 不带 expiresAt 的旧格式记录：fail-safe 当过期
+    await writeFile(tokenFile, JSON.stringify({
+      'session-legacy': { token: staleToken, issuedAt: 1, used: false },
+    }, null, 2) + '\n', 'utf8')
+    const legacy = await consumeHandoffToken(expireCtx, { sessionId: 'session-legacy', token: staleToken })
+    check('⑤ 老格式（无 expiresAt）当过期处理', legacy.ok === false
+      && String(legacy.reason).includes('过期'), String(legacy.reason))
+
+    // 跨会话：令牌记在 session-auth 名下，换个会话 id 来用 → 找不到记录
+    const crossed = await commitHandoff({
+      ctx: authCtx, projectRoot: cloneRoot, sessionId: 'session-other', token: issued.token,
+      force: true, entry: CLONE_ENTRY,
+    })
+    check('⑤ 跨会话令牌被拒（refusedAt=token）',
+      crossed.wrote === false && crossed.refusedAt === 'token', JSON.stringify({ at: crossed.refusedAt }))
+    check('⑤ 跨会话理由含「缺口令」且点明本会话没令牌',
+      String(crossed.reason).includes('缺口令') && String(crossed.reason).includes('本会话'),
+      crossed.reason)
+
+    // 令牌值对不上（会话对但串了别人的 token）
+    const freshHome = await tempDir('dsh-limbs-wrongtoken-')
+    const freshCtx = makeFakeHostCtx({ home: freshHome })
+    const fresh = await issueHandoffToken(freshCtx, { sessionId: 'session-right' })
+    const wrong = await consumeHandoffToken(freshCtx, { sessionId: 'session-right', token: 'not-the-token' })
+    check('⑤ 会话对但令牌值不符也拒', wrong.ok === false && String(wrong.reason).includes('不符'),
+      String(wrong.reason))
+    const right = await consumeHandoffToken(freshCtx, { sessionId: 'session-right', token: fresh.token })
+    check('⑤ 对照组：值对得上就通过（证明上面不是全拒）', right.ok === true)
+  }
+}
+
+// ── 工具注册面：名字在、命令仍在、不碰 client ───────────────────────
+{
+  check('工具名常量正确', REQUEST_TOKEN_TOOL_NAME === 'handoff_request_token',
+    REQUEST_TOKEN_TOOL_NAME)
+
+  // 只替身 `tools.register` / `commands.register` 收集定义，不真挂到宿主上。
+  const registered = []
+  const regCtx = {
+    ...makeFakeHostCtx({ home: await tempDir('dsh-limbs-register-') }),
+    tools: { register: definition => { registered.push(definition); return () => {} } },
+    commands: { register: definition => { registered.push({ command: definition }); return () => {} } },
+    effect: (fn) => { fn(); return () => {} },
+    on: () => () => {},
+  }
+  const { disposers } = applyHandoffTools(regCtx)
+
+  const toolNames = registered.filter(d => d.name !== undefined && d.execute !== undefined)
+    .map(d => d.name)
+  check('工具面新增 handoff_request_token', toolNames.includes(REQUEST_TOKEN_TOOL_NAME),
+    JSON.stringify(toolNames))
+  check('原有三个工具仍在（lookup / dry-run / commit）',
+    ['handoff_lookup', 'handoff_commit_dry_run', 'handoff_commit'].every(name => toolNames.includes(name)),
+    JSON.stringify(toolNames))
+  check('新工具的 required 里没有 token 参数（它自己不收令牌，只收可选 session_id）',
+    JSON.stringify(registered.find(d => d.name === REQUEST_TOKEN_TOOL_NAME)?.parameters?.required ?? [])
+      === '[]')
+  check('四个工具各自返回一个 disposer',
+    disposers.length >= 4, String(disposers.length))
+
+  const commandNames = registered.filter(d => d.command !== undefined).map(d => d.command.name)
+  check('人工兜底命令 /limbs-handoff-token 仍然注册', commandNames.includes('limbs-handoff-token'),
+    JSON.stringify(commandNames))
+
+  // 工具回调里**真的**能读到本轮 user message：走一遍 execute，喂一个假 exec.agent。
+  const execAgent = {
+    session: {
+      id: 'session-exec',
+      header: { cwd: root },
+      inheritedEventCount: 0,
+      snapshotEvents: () => [humanEvent(0, '任务收尾')],
+    },
+  }
+  const execCtx = {
+    ...regCtx,
+    get: name => name === 'agents'
+      ? { turnBoundaryOf: () => ({ openTurnStartSeq: 0, lastStepStartSeq: 0, lastStepBoundary: null, lastTurn: 1 }) }
+      : name === 'dshHomePath'
+        ? (...parts) => join(regCtx.get('dshHomePath')(...parts))
+        : regCtx.get(name),
+  }
+  const execRegistered = []
+  applyHandoffTools(execCtx, { projectRoot: root, now: () => new Date('2026-11-25T12:00:00Z') })
+  // 上面那次注册落在同一个 tools 里，重取一次拿到带 execute 的定义。
+  const requestTool = registered.filter(d => d.name === REQUEST_TOKEN_TOOL_NAME).at(-1)
+  const execResult = await requestTool.execute({}, { agent: execAgent, callId: 'c1', name: REQUEST_TOKEN_TOOL_NAME, arguments: {}, signal: new AbortController().signal })
+  check('工具回调真读到本轮 user message 并发出令牌',
+    String(execResult).includes('已发放一次性令牌'), String(execResult).slice(0, 160))
+}
+
 {
   const once = upsertLedgerRow(
     cloneOriginalProgress, '| `t-20261121-77` | 新行 | `doing` | 结论 | — | — |', 't-20261121-77')
