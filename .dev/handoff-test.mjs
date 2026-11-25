@@ -37,6 +37,7 @@ import {
   createHandoffAssembler,
   dateStamp,
   devlogFileName,
+  devlogSummary,
   dryRunCommit,
   handoffTokenFile,
   isHumanUserSource,
@@ -146,7 +147,14 @@ check('快照带核对日期', parseStatusCheckedAt(statusText) !== null,
   String(parseStatusCheckedAt(statusText)))
 check('快照不含 §三 的内容（切在下一个二级标题）', !snapshot.includes('目录职责'))
 
-const sampleDevlogText = await readFile(join(root, 'Docs/devlog/t-20261120-02_开发交接.md'), 'utf8')
+// ⚠️ 不写死完整文件名：devlog 摘要取账行标题，标题一改文件名就变（真机上一轮就撞了）。
+// 约定是 **id 前缀**：`t-YYYYMMDD-NN_<摘要>.md` 里只有 id 是稳定的，摘要不是。
+const sampleDevlogId = 't-20261120-02'
+const sampleDevlogName = (await readdir(join(root, 'Docs/devlog')))
+  .find(name => name.startsWith(sampleDevlogId + '_') && name.endsWith('.md'))
+check('仓库里存在 t-20261120-02 的冷存档（按 id 前缀找）',
+  sampleDevlogName !== undefined, String(sampleDevlogName))
+const sampleDevlogText = await readFile(join(root, 'Docs/devlog', sampleDevlogName), 'utf8')
 const sampleSections = parseDevlogSections(sampleDevlogText)
 check('devlog 四段键齐全（英文键）',
   JSON.stringify(Object.keys(sampleSections)) === JSON.stringify(DEVLOG_SECTIONS),
@@ -169,7 +177,38 @@ check('取 id 最大的 devlog（字典序 = 时间序）',
 
 check('dateStamp 用本地日期', dateStamp(new Date(2026, 10, 21)) === '20261121',
   dateStamp(new Date(2026, 10, 21)))
-check('devlog 文件名照 D3 命名', devlogFileName('t-20261121-01') === 't-20261121-01_开发交接.md')
+
+// ── devlog 文件名：id 前缀 + 内容摘要（D3 / DOCS_LAYOUT §④）───────────
+check('文件名以 id 开头、摘要来自标题',
+  devlogFileName('t-20261121-01', '交接只读两段') === 't-20261121-01_交接只读两段.md',
+  devlogFileName('t-20261121-01', '交接只读两段'))
+check('摘要不含「开发交接」这种空词',
+  !devlogFileName('t-20261121-01', '交接只读两段').includes('开发交接'))
+check('空格 → 连字符',
+  devlogSummary('模块七 窗口交接') === '模块七-窗口交接', devlogSummary('模块七 窗口交接'))
+check('连续空格压成一个连字符',
+  devlogSummary('模块七   窗口交接') === '模块七-窗口交接', devlogSummary('模块七   窗口交接'))
+check('文件名非法字符被去掉（\\ / : * ? " < > |）',
+  devlogSummary('a\\b/c:d*e?f"g<h>i|j') === 'abcdefghij', devlogSummary('a\\b/c:d*e?f"g<h>i|j'))
+check('制表与换行当空白 → 连字符',
+  devlogSummary('a\tb\nc') === 'a-b-c', JSON.stringify(devlogSummary('a\tb\nc')))
+check('其余控制字符直接删掉（不占位、不留空洞）',
+  devlogSummary('a\u0000b\u007fc') === 'abc', JSON.stringify(devlogSummary('a\u0000b\u007fc')))
+check('标题超 15 字时摘要截到 15 字',
+  devlogSummary('一二三四五六七八九十一二三四五六').length === 15,
+  String(devlogSummary('一二三四五六七八九十一二三四五六').length))
+check('截断按字数算，不是按字节（中文不被劈开）',
+  Array.from(devlogSummary('一二三四五六七八九十一二三四五六')).length === 15,
+  devlogSummary('一二三四五六七八九十一二三四五六'))
+check('首尾与重复的连字符被收干净',
+  devlogSummary('  模块七 -- 窗口交接  ') === '模块七-窗口交接',
+  devlogSummary('  模块七 -- 窗口交接  '))
+let summaryThrew = null
+try { devlogSummary('') } catch (error) { summaryThrew = error }
+check('拿不到 title 就抛错，不编默认词',
+  summaryThrew !== null && /title/.test(summaryThrew.message), String(summaryThrew?.message))
+check('devlogFileName 缺 title 同样抛错（没有默认摘要）',
+  (() => { try { devlogFileName('t-20261121-01'); return false } catch { return true } })())
 
 // ═══════════════════════════════════════════════════════════════════════
 log('== 2. assemble：热层四段')
@@ -314,7 +353,10 @@ log('== 3. lookup：按 id 取冷存档、按关键词检索账表')
 const found = await lookupDevlog('t-20261120-02', root)
 check('按 id 取到 t-20261120-02 的正文', found.found && found.text.includes('v0.2 半成品分批入库'))
 check('正文含四段', DEVLOG_SECTIONS.every(key => found.text.includes(`## ${key}`)))
-check('返回真实路径', String(found.path).endsWith(join('Docs', 'devlog', 't-20261120-02_开发交接.md')),
+// 只断言「文件名以该 id 开头」：摘要随标题变，钉死完整名等于把下一个改名钉进断言。
+check('返回真实路径（文件名以 id 开头）',
+  String(found.path).includes(join('Docs', 'devlog'))
+  && String(found.path).split(/[\\/]/).pop().startsWith('t-20261120-02_'),
   String(found.path))
 
 const malformed = await lookupDevlog('20261120-02', root)
@@ -343,8 +385,10 @@ check('真实工程算出的 id 是当天首个', /^t-20261121-\d{2}$/.test(real
 // 关键：**账表里有、devlog 里没有** 的 id 也要算进去（否则必撞号）
 const probeRoot = await tempDir('dsh-limbs-commit-')
 await mkdir(join(probeRoot, 'Docs', 'devlog'), { recursive: true })
-await writeFile(join(probeRoot, 'Docs', 'devlog', 't-20261121-01_开发交接.md'), '# 假的\n', 'utf8')
-await writeFile(join(probeRoot, 'Docs', 'devlog', 't-20261121-02_开发交接.md'), '# 假的\n', 'utf8')
+// probe 里的假 devlog 也用**新的生成器**造名，别手写文件名 —— 手写就等于把
+// 「文件名长什么样」又钉死在测试里一次（这次改带摘要正是为了不再有第二种形态）。
+await writeFile(join(probeRoot, 'Docs', 'devlog', devlogFileName('t-20261121-01', '假的第一件')), '# 假的\n', 'utf8')
+await writeFile(join(probeRoot, 'Docs', 'devlog', devlogFileName('t-20261121-02', '假的第二件')), '# 假的\n', 'utf8')
 await writeFile(join(probeRoot, 'PROJECT_PROGRESS.md'), [
   '# 项目进度',
   '',
@@ -413,8 +457,27 @@ check('dry-run 拼出账行', typeof dry.ledgerRow === 'string' && dry.ledgerRow
 check('dry-run 拼出 devlog 正文四段',
   DEVLOG_SECTIONS.every(key => dry.devlogBody.includes(`## ${key}`)))
 check('dry-run 指向的目标 devlog 尚不存在', dry.devlogExists === false, String(dry.devlogExists))
+check('dry-run 的目标文件名是 `t-YYYYMMDD-NN_<标题>.md` 形态',
+  /^t-20261121-06_.+\.md$/.test(dry.devlogFileName)
+  && dry.devlogFileName === 't-20261121-06_模块七-窗口交接.md',
+  String(dry.devlogFileName))
+check('目标路径的文件名与 devlogFileName 一致（不许两处各拼一次）',
+  String(dry.devlogPath).split(/[\\/]/).pop() === dry.devlogFileName,
+  `${String(dry.devlogPath).split(/[\\/]/).pop()} vs ${dry.devlogFileName}`)
 check('dry-run 明说哪些还没实现（口令 / 写盘 / 自检）',
   dry.notYetImplemented.length >= 3 && dry.notYetImplemented.some(item => item.includes('写盘')))
+
+// 账行未通过校验时**不生成文件名**（缺 title 就更不编一个默认词）
+const dryInvalid = await dryRunCommit({
+  projectRoot: probeRoot,
+  now: new Date(2026, 10, 21),
+  entry: { title: '', status: 'done', conclusion: '短', next: '—' },
+})
+check('校验未通过时 devlogFileName 为 null（不编摘要）',
+  dryInvalid.devlogFileName === null && dryInvalid.devlogPath === null,
+  JSON.stringify({ name: dryInvalid.devlogFileName, path: dryInvalid.devlogPath }))
+check('校验未通过的报告写明「不生成」而不是给个占位名',
+  renderDryRunReport(dryInvalid).includes('不生成'), '')
 
 const report = renderDryRunReport(dry)
 check('报告开头就说明没写文件', report.includes('没有写任何文件'))
