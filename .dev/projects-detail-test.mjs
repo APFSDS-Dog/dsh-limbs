@@ -360,6 +360,117 @@ log('== 渲染小件')
     String(limited.filter(n => n.type === 'tr').length))
 }
 
+// ── 失败码分档 + 令牌失配自愈（真机 403 的回归）─────────────────────────
+//
+// 真机现象（2026-11-25）：Host 重载插件会换一个新令牌，页面还拿着旧的 →
+// 一级页快照看着正常，二级页的详情 GET 与配置 PUT **两条一起 403 forbidden**。
+// 另有一条独立的坑：路径坏了是 400（missing / unregistered / path），
+// 若 UI 一律显示「请求失败：没有权限…」，排查者会被带偏到令牌上。
+log('== 失败码 / 令牌失配')
+
+const TOKEN_NEW = 'token-new'
+const TOKEN_OLD = 'token-old'
+
+/** 造一个「只认新令牌，旧令牌 403 forbidden」的 Host。 */
+function staleHost(extra) {
+  const seen = { bridge: 0, detail: [], save: [] }
+  const fetchImpl = (path, init) => {
+    if (path === '/limbs/handoff-bridge') {
+      seen.bridge += 1
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve({
+          ok: true, token: TOKEN_NEW,
+          configPath: '/limbs/handoff-config', projectPath: '/limbs/handoff-project',
+        }),
+      })
+    }
+    const token = init?.headers?.['x-limbs-token']
+    if (extra !== undefined) return extra(path, init, token)
+    if (init?.method === 'PUT') {
+      seen.save.push(token)
+      return token === TOKEN_NEW
+        ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, path: 'D:\\Projects\\alpha', config: DETAIL_BODY.config, sources: DETAIL_BODY.configSources }) })
+        : Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ ok: false, code: 'forbidden', message: '没有权限读写项目配置。' }) })
+    }
+    seen.detail.push(token)
+    return token === TOKEN_NEW
+      ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(DETAIL_BODY) })
+      : Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ ok: false, code: 'forbidden', message: '没有权限读取项目详情。' }) })
+  }
+  return { fetchImpl, seen }
+}
+
+{
+  // ① 详情 GET：旧令牌 → 403 → 换令牌重试 → 200，界面不再报错
+  const host = staleHost()
+  const s = createProjectsStore({ bridge: { token: TOKEN_OLD, configPath: '/limbs/handoff-config', projectPath: '/limbs/handoff-project' }, fetchImpl: host.fetchImpl })
+  await s.openProject('D:\\Projects\\alpha')
+  const snap = s.getSnapshot()
+  check('旧令牌先 403，换令牌后详情仍拿到', snap.phase === 'ready' && snap.detail !== null, snap.phase)
+  check('只换了 1 次令牌', host.seen.bridge === 1, String(host.seen.bridge))
+  check('重试用的是新令牌', host.seen.detail.join(',') === TOKEN_OLD + ',' + TOKEN_NEW, host.seen.detail.join(','))
+  check('详情没有报错文案', snap.error === null, String(snap.error))
+
+  // ② 配置 PUT：同一条路径（二级页的两个开关走它）。这里**换一个新 store**，
+  //    让它也从旧令牌起步 —— 上面那个 store 的令牌已经在 ① 里换成新的了。
+  const saveHost = staleHost()
+  const saveStore = createProjectsStore({ bridge: { token: TOKEN_OLD, configPath: '/limbs/handoff-config', projectPath: '/limbs/handoff-project' }, fetchImpl: saveHost.fetchImpl })
+  await saveStore.saveConfig('D:\\Projects\\alpha', { inject: false })
+  const afterSave = saveStore.getSnapshot()
+  check('旧令牌保存也自愈（提示是已保存）', afterSave.toast?.kind === 'ok', JSON.stringify(afterSave.toast))
+  check('保存也先 403 再换令牌重试',
+    saveHost.seen.save.join(',') === TOKEN_OLD + ',' + TOKEN_NEW, saveHost.seen.save.join(','))
+
+}
+
+{
+  // ③ 坏路径：400 missing，**不换令牌**，文案必须指向路径
+  const host = staleHost((path, init, token) => Promise.resolve({
+    ok: false, status: 400,
+    json: () => Promise.resolve({ ok: false, code: 'missing', message: '这个路径不存在或不是目录。' }),
+  }))
+  const s = createProjectsStore({ bridge: { token: TOKEN_NEW, configPath: '/limbs/handoff-config', projectPath: '/limbs/handoff-project' }, fetchImpl: host.fetchImpl })
+  await s.openProject('D:\\Projects\\alpha')
+  const snap = s.getSnapshot()
+  check('坏 path 不换令牌（非令牌问题）', host.seen.bridge === 0, String(host.seen.bridge))
+  check('坏 path 的文案说是路径问题', String(snap.error).includes('路径问题'), String(snap.error))
+  check('坏 path 的文案带出来的 code 是 missing', String(snap.error).includes('missing'), String(snap.error))
+  check('坏 path 的文案**不**说没有权限', !String(snap.error).includes('没有权限'), String(snap.error))
+}
+
+{
+  // ④ 未登记目录：400 unregistered，文案指向「不是工作区」
+  const host = staleHost((path, init, token) => Promise.resolve({
+    ok: false, status: 400,
+    json: () => Promise.resolve({ ok: false, code: 'unregistered', message: '该目录既不是 DSH 工作区…' }),
+  }))
+  const s = createProjectsStore({ bridge: { token: TOKEN_NEW, configPath: '/limbs/handoff-config', projectPath: '/limbs/handoff-project' }, fetchImpl: host.fetchImpl })
+  await s.openProject('D:\\Projects\\nope')
+  const snap = s.getSnapshot()
+  check('unregistered 文案说是路径/工作区问题', String(snap.error).includes('路径问题'), String(snap.error))
+  check('unregistered 文案带出 code', String(snap.error).includes('unregistered'), String(snap.error))
+}
+
+{
+  // ⑤ 令牌换了也没用（桥接回同一个令牌）：不无限重试，照实报 403
+  let bridgeCalls = 0
+  const fetchImpl = (path, init) => {
+    if (path === '/limbs/handoff-bridge') {
+      bridgeCalls += 1
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({
+        ok: true, token: TOKEN_OLD, configPath: '/limbs/handoff-config', projectPath: '/limbs/handoff-project',
+      }) })
+    }
+    return Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ ok: false, code: 'forbidden', message: '没有权限读取项目详情。' }) })
+  }
+  const s = createProjectsStore({ bridge: { token: TOKEN_OLD, configPath: '/limbs/handoff-config', projectPath: '/limbs/handoff-project' }, fetchImpl })
+  await s.openProject('D:\\Projects\\alpha')
+  const snap = s.getSnapshot()
+  check('令牌没变时不重试、照实报错', String(snap.error).includes('令牌'), String(snap.error))
+  check('令牌没变时只问了一次桥接', bridgeCalls === 1, String(bridgeCalls))
+}
+
 log('== summary')
 log(`${passed} passed, ${failed} failed`)
 process.exitCode = failed === 0 ? 0 : 1
