@@ -94,7 +94,7 @@ async function makeProject(prefix, options = {}) {
     '## 二、实测状态快照\n\n**核对日期：2026-01-01**\n\n| 项 | 实测值 |\n|---|---|\n| 假项 | 1 |\n', 'utf8')
   await mkdir(join(dir, 'Docs', 'devlog'), { recursive: true })
   for (const [id, title] of [['t-20260101-01', '第一件事'], ['t-20260101-02', '第二件事']]) {
-    await writeFile(join(dir, 'Docs', 'devlog', `${id}_开发交接.md`),
+    await writeFile(join(dir, 'Docs', 'devlog', `${id}_测试项.md`),
       `# ${id} · ${title}\n\n## goal\n\n假的。\n\n## confirmed_facts\n\n假的。\n\n`
       + '## excluded_paths\n\n假的。\n\n## todos\n\n假的。\n', 'utf8')
   }

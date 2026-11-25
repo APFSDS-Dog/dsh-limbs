@@ -145,8 +145,8 @@ const DETAIL_BODY = {
     statusSnapshot: '| 项 | 实测值 |\n|---|---|\n| 假项 | 1 |',
     statusCheckedAt: '2026-01-01',
     devlogs: [
-      { id: 't-20260105-01', name: 't-20260105-01_开发交接.md', title: '第五件', modifiedAt: 5 },
-      { id: 't-20260103-01', name: 't-20260103-01_开发交接.md', title: '第三件', modifiedAt: 3 },
+      { id: 't-20260105-01', name: 't-20260105-01_测试项.md', title: '第五件', modifiedAt: 5 },
+      { id: 't-20260103-01', name: 't-20260103-01_测试项.md', title: '第三件', modifiedAt: 3 },
     ],
     hasProgress: true,
     hasStatus: true,
@@ -176,7 +176,7 @@ function fakeFetch(path, init) {
       ok: true, status: 200,
       json: () => Promise.resolve({
         ok: true,
-        devlog: { found: true, id, name: `${id}_开发交接.md`, text: `# ${id}\n\n## todos\n\n假的。`, sections: { todos: '假的。' } },
+        devlog: { found: true, id, name: `${id}_测试项.md`, text: `# ${id}\n\n## todos\n\n假的。`, sections: { todos: '假的。' } },
       }),
     })
   }
