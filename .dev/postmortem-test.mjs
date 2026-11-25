@@ -7,7 +7,12 @@
  *   & 'D:\Apps\DeepSeekHarness\DeepSeek Harness.exe' .dev\postmortem-test.mjs
  */
 
-import { fetchTraceData, analyzeData, generateMarkdown, reviewConversation, apply } from '../lib/host.js'
+import { readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
+import {
+  fetchTraceData, analyzeData, generateMarkdown, reviewConversation, apply,
+  LIMBS_CONFIG_ENTRY, LIMBS_CONFIG_SPEC, buildLimbsConfig,
+} from '../lib/host.js'
 
 let passed = 0
 let failed = 0
@@ -323,6 +328,88 @@ check('错误文本说明了原因', String(failedResult?.text).includes('不在
 // 工具与命令走同一条实现
 const viaHelper = reviewConversation(applyCtx, { id: sessionE.id }, 3)
 check('reviewConversation 直接可用', viaHelper.includes('会话复盘 · 效率诊断'))
+
+// ════════════════════════════════════════════════════════════════════
+console.log('\n[场景 F] 模块三的 Host Config schema（真 Schemastery）')
+// 生产路径 `Config` 依赖 `@deepseek-ai/schemastery`（peerDependency，宿主提供）。
+// 本仓库自己没装这个包，所以这里用 **DSH profile 里那一份真库**验证同一份规格：
+// schema 形状、默认值、枚举、volatile 标记、非原生 schema 的拒绝行为。
+function schemaLibUrl() {
+  const home = process.env.DSH_HOME || 'D:/Apps/DSHData'
+  return pathToFileURL(home + '/profiles/desktop/node_modules/@deepseek-ai/schemastery/lib/index.mjs').href
+}
+
+let schemaLib = null
+try {
+  const module = await import(schemaLibUrl())
+  schemaLib = module.default ?? module
+} catch { schemaLib = null }
+
+check('schemastery 从 DSH profile 解析得到', typeof schemaLib === 'function',
+  String(schemaLibUrl()))
+
+check('schema 规格：条目 id 就是 profile 里的 dsh-limbs', LIMBS_CONFIG_SPEC.entryId === LIMBS_CONFIG_ENTRY
+  && LIMBS_CONFIG_ENTRY === 'dsh-limbs', LIMBS_CONFIG_SPEC.entryId)
+check('schema 规格：三个字段（上下文 / 推理 / 费用超限）',
+  JSON.stringify(LIMBS_CONFIG_SPEC.fields) === JSON.stringify(['context', 'effort', 'costWarn']),
+  JSON.stringify(LIMBS_CONFIG_SPEC.fields))
+check('schema 规格：上下文枚举来自 levels.js（3 档）',
+  JSON.stringify(LIMBS_CONFIG_SPEC.context) === JSON.stringify(['300k', '600k', '1m']),
+  JSON.stringify(LIMBS_CONFIG_SPEC.context))
+check('schema 规格：推理枚举含关 / 默认 / 低 / 中 / 高 / 最高',
+  JSON.stringify(LIMBS_CONFIG_SPEC.effort) === JSON.stringify(['off', 'provider-default', 'low', 'medium', 'high', 'max']),
+  JSON.stringify(LIMBS_CONFIG_SPEC.effort))
+check('schema 规格：默认值取自 DEFAULT_SETTINGS',
+  LIMBS_CONFIG_SPEC.defaults.context === '600k' && LIMBS_CONFIG_SPEC.defaults.effort === 'provider-default'
+  && LIMBS_CONFIG_SPEC.defaults.costWarn === true,
+  JSON.stringify(LIMBS_CONFIG_SPEC.defaults))
+
+if (schemaLib !== null) {
+  const built = buildLimbsConfig(schemaLib)
+  check('buildLimbsConfig 产出原生 Schemastery graph',
+    built?.[Symbol.for('schemastery')] === true && typeof built.type === 'string'
+    && built.meta !== null && typeof built.meta === 'object',
+    String(built?.[Symbol.for('schemastery')]))
+  check('原生 graph 正是 DSH 认的那种（isNativeConfigSchema 三条判据）',
+    built?.[Symbol.for('schemastery')] === true && typeof built.type === 'string'
+    && typeof built.meta === 'object')
+  check('schema 根是 object 且字段齐全',
+    built.type === 'object' && JSON.stringify(Object.keys(built.dict))
+    === JSON.stringify(['context', 'effort', 'costWarn']),
+    JSON.stringify(Object.keys(built.dict || {})))
+  check('三个字段都标了 volatile（官方 configForms 只暴露这类字段）',
+    built.dict.context.meta.volatile === true && built.dict.effort.meta.volatile === true
+    && built.dict.costWarn.meta.volatile === true)
+  check('字段默认值落在 schema 上，不用 apply 里再兜一遍',
+    built.dict.context.meta.default === '600k' && built.dict.effort.meta.default === 'provider-default'
+    && built.dict.costWarn.meta.default === true,
+    JSON.stringify([built.dict.context.meta.default, built.dict.effort.meta.default, built.dict.costWarn.meta.default]))
+  // ⚠️ volatile 字段解析出来是「引用」对象（`{ get() }`），官方 `plainConfig`
+  // 就是 `.get()` 一层把它摊平的；断言照同一条口径走，别直接比值。
+  const plain = (value, key) => {
+    const raw = value === null || value === undefined ? undefined : value[key]
+    return raw !== null && typeof raw === 'object' && typeof raw.get === 'function' ? raw.get() : raw
+  }
+  const resolved = built({})
+  check('空配置解析成默认值',
+    plain(resolved, 'context') === '600k' && plain(resolved, 'effort') === 'provider-default'
+    && plain(resolved, 'costWarn') === true,
+    JSON.stringify(['context', 'effort', 'costWarn'].map(key => plain(resolved, key)))
+    + ' · ' + JSON.stringify(resolved))
+  let rejected = null
+  try { built({ context: '128K' }) } catch (error) { rejected = error.message }
+  check('旧占位值（128K）被真 schema 拒绝', rejected !== null && String(rejected).includes('128K'), String(rejected))
+  let rejectedEffort = null
+  try { built({ effort: 'turbo' }) } catch (error) { rejectedEffort = error.message }
+  check('不认识的理由档位被拒绝', rejectedEffort !== null, String(rejectedEffort))
+  const accepted = built({ context: '1m', effort: 'high', costWarn: false })
+  check('合法枚举通过校验',
+    plain(accepted, 'context') === '1m' && plain(accepted, 'effort') === 'high'
+    && plain(accepted, 'costWarn') === false,
+    JSON.stringify(['context', 'effort', 'costWarn'].map(key => plain(accepted, key))) + ' · ' + JSON.stringify(accepted))
+  const roundtrip = built.toJSON()
+  check('schema 可序列化（官方序列化用的就是 toJSON）', roundtrip !== null && typeof roundtrip === 'object')
+}
 
 // ════════════════════════════════════════════════════════════════════
 console.log(`\n${'='.repeat(52)}`)
