@@ -52,12 +52,12 @@
 
 | 项 | 实测值 | 怎么核的 |
 |---|---|---|
-| JS / MJS 源文件 | `lib/` 5 个 · `tools/` 1 个 | `Get-ChildItem lib -Recurse -Filter *.js` / `tools/*.mjs` |
+| JS / MJS 源文件 | `lib/` 4 个 · `tools/` 1 个（`.mjs`） | `Get-ChildItem lib -Recurse -Filter *.js` / `tools/*.mjs` |
 | PowerShell 工具 | 6 个（真机操作用） | `ls tools/*.ps1` |
-| 文档数 | 扫描 37 份 | `pwsh -File ./check-docs.ps1` |
+| 文档数 | **不写死** —— 以 `check-docs.ps1` 的「扫描文档: N 份」为准 | `pwsh -File ./check-docs.ps1` |
 | 文档自检 | **全绿**（技能相关 2 项因未安装跳过） | 同上 —— ⚠️ **不能用 `python check_docs.py`**，本机 `python` 是 WindowsApps 占位桩；**项数以脚本输出为准，不写死** |
 | 依赖 / 插件 | 无自带依赖（`node_modules` 不进包）；peer 为宿主提供的 `cordis` / `typert-protocol` / `react`，另加 **`@deepseek-ai/schemastery`（optional，模块三 Host Config 用）** | `package.json` 的 `peerDependencies` |
-| 离线测试 | 八套（模型管理 / UI 壳 / 复盘 / 设置跳转 / 窗口交接 / 模块八配置 / 模块八一级页 / 模块八二级页），另有选择器回归 | `$env:ELECTRON_RUN_AS_NODE='1'; & '<DSH exe>' .dev\<test>.mjs`（清单见 `README.md` §开发） |
+| 离线测试 | **不写死条数** —— 九套脚本：模型管理 / UI 壳 / 复盘 / 设置跳转 / 窗口交接 / 模块八配置 / 模块八一级页 / 模块八二级页，另有选择器回归；条数以各脚本自己的输出为准 | `$env:ELECTRON_RUN_AS_NODE='1'; & '<DSH exe>' .dev\<test>.mjs`（清单见 `README.md` §开发） |
 ---
 
 ## 三、目录职责
