@@ -1,6 +1,6 @@
 # dsh-limbs
 
-> DSH 的「手脚」：模块一把 composer 里那个朴素的模型选择器换成可搜索、双栏、键盘可用的版本；模块二把模型管理改成全中文、从左到右的推理/上下文档位滑动；模块三在对话结束后复盘 token 到底花在哪儿。模型数据来自 DSH 官方目录与原生事件流，不联网、不自建模型清单。
+> DSH 的「手脚」：模块一把 composer 里那个朴素的模型选择器换成可搜索、双栏、键盘可用的版本；模块二把模型管理收敛成一页只读面板（上下文挡位与档位条滑杆已于 2026-11-26 删除）；模块三在对话结束后复盘 token 到底花在哪儿。模型数据来自 DSH 官方目录与原生事件流，不联网、不自建模型清单。
 
 ![MIT](https://img.shields.io/badge/license-MIT-blue)
 
@@ -28,24 +28,24 @@ DSH（DeepSeek Harness）的模型选择座位 `conversation.input.model` 默认
 | 底栏 | `N 提供商 · M 模型 · K 失败`、「重新读取」、键盘提示 |
 | 主题 | 全部颜色走 `--dsw-alias-*` / `--dsw-specific-*` 令牌，浅色/深色自动跟随 |
 
-## 模块二 · 档位化模型管理
+## 模块二 · 档位化模型管理（2026-11-26 缩水）
 
-设置里的「模型管理」是一个单页、全中文、居中 400–640px 的档位面板。两个核心控件都是横向滑动条，进入页面第一屏就能看到：
+设置里的「模型管理」是一个单页、全中文、居中 400–640px 的只读面板：显示当前模型，底部一个「恢复默认」。
 
-| 模块 | 从左到右 | 默认档 |
-|---|---|---|
-| 推理挡位 | 关闭 → 默认 → 低 → 中 → 高 → 最高（可选） | 服务商默认 |
-| 上下文长度 | 300K → 600K → 1M | 600K（带「默认」文字标识） |
+**原来的两样已经删掉**，原因写进了 PRD：
 
-- **档位吸附**：拖动时按轨道比例吸附最近的可用档，松手才保存；点击刻度直接跳转。
-- **键盘**：Tab 聚焦轨道，`←/→` 或 `↑/↓` 切换，`Home/End` 到两端；方向键自动跳过禁用档。
-- **状态可读**：选中「关闭」顶部显示「推理已关闭」；「服务商默认」显示「服务商默认：使用服务商提供的默认强度」；上下文摘要显示「600K 上下文 · 适中」。
-- **最高档**：由 `showMax` 配置决定是否展示；展示但服务商不支持时只置灰对应圆点，`title` / 点击 Toast 给中文原因。
-- **颜色不是唯一信号**：当前档有实心点 + `✓` + 加粗文字；默认档有「默认」文字；禁用档有 `aria-disabled` 和中文原因。
+| 删掉的 | 为什么 |
+|---|---|
+| **上下文挡位**（300K / 600K / 1M） | 假控件 —— 代码里从未把 `context` 传给模型请求，存了不生效 |
+| **档位条滑杆**（`LevelSlider`） | 与 chips 功能重复，chips 更轻：一眼看全、单击即选 |
+
+**保留**：推理档位 chips（提供方默认 / Off / Low / High / Max），在输入框模型选择器底部，**它真进 provider 的 effort**，位置与交互都没动。
+
 - **保存**：即时保存 + 乐观更新 + 失败回滚；Host 侧按账号分桶、按 `updatedAt` 最新优先，多窗口通过 30 秒轮询和窗口 focus 同步。
-- **恢复默认**：二次确认后只恢复推理挡位与上下文长度，当前模型不变。
+- **恢复默认**：二次确认后只恢复推理挡位，当前模型不变。
+- **设置项**：`effort`（默认推理强度，下拉）与 `costWarn`（费用超限提示，开关）。
 
-完整设计与协议见 [Docs/MODULE2.md](https://github.com/apfsds-dog/dsh-limbs/blob/main/Docs/MODULE2.md)（仓库内文档，不随包发布）。Host 保存接口 `GET/PUT /limbs/model-settings` 的令牌由 Host 启动时注入页面；`lib/host.js` 改动需要重启 DSH 才生效。
+完整设计与协议见 [Docs/MODULE2.md](Docs/MODULE2.md)（仓库内文档，不随包发布）。Host 保存接口 `GET/PUT /limbs/model-settings` 的令牌由 Host 启动时注入页面；`lib/host.js` 改动需要重启 DSH 才生效。
 
 ## 模块三 · 事后复盘分析器
 
@@ -182,7 +182,7 @@ const LIMBS_META = {
 
 ### 模块二设置
 
-模块二的两档设置由 Host 保存到 `<DSH_HOME>/dsh-limbs/model-settings.json`，按账号分桶（`deepseekAccount.getDeviceIdentity().userId`，未登录用 `local`）。保存接口只接受两个字段，带 `x-limbs-token`，并拒绝跨站来源。
+模块二的推理档位设置由 Host 保存到 `<DSH_HOME>/dsh-limbs/model-settings.json`，按账号分桶（`deepseekAccount.getDeviceIdentity().userId`，未登录用 `local`）。保存接口只接受推理档位这一个字段，带 `x-limbs-token`，并拒绝跨站来源。
 
 想改档位本身，编辑 [lib/model-management/levels.js](lib/model-management/levels.js)（数组即配置）；Client 侧有一份同构内置表用于 Host 缺席时降级，测试会比对两份数据。最高档展示开关：
 
@@ -233,7 +233,7 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 ## 数据与隐私
 
 - 模块三（[lib/host.js](lib/host.js) 的复盘分析器）只读：读会话事件流与投影、注册一个工具和一条命令，不写会话日志、不联网。
-- 模块二的 Host 保存接口只写 `<DSH_HOME>/dsh-limbs/model-settings.json`：两个档位字段 + 账号分桶 + 时间戳，不写会话日志、不联网、不碰模型目录。
+- 模块二的 Host 保存接口只写 `<DSH_HOME>/dsh-limbs/model-settings.json`：推理档位字段 + 账号分桶 + 时间戳，不写会话日志、不联网、不碰模型目录。
 - 模块三不发送任何模型请求，报告在本地算完直接返回。
 - 所有模型数据来自官方 `ctx.modelDirectories`（底层 `session.modelCatalog` / `session.selectModel`），插件自己不维护第二份目录。
 - 没有外部网络请求；`LIMBS_META` 是编译在文件里的静态表，不是远程拉取。
@@ -249,7 +249,7 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 - 推理档位切换只对声明了 `reasoning` 的模型出现；没有该字段的提供商不显示胶囊。
 - **模块二的「模型选择」是只读展示**：设置分区没有 session，模型仍在 composer 选择器里切换；恢复默认不改变当前模型。
 - **模块二的同步范围是同一台 Host**：Host 文件按账号分桶、多窗口可同步；跨设备需要 DSH 账号后端接口，当前版本没有该通道，页面会明确显示「已保存到本机」或「服务端已同步」。
-- **模块二最高档能力来自模块一的最近模型记录**：模型没有声明 `max` 档时置灰，而不是猜测可用。
+- **模块二不再有档位控件**：上下文挡位与档位条滑杆已于 2026-11-26 删除（假控件 + 与 chips 重复，见 `Docs/design/PRD.md` §5）；设置页只剩「默认推理强度」与「费用超限时提示」。
 
 ## 目录结构
 

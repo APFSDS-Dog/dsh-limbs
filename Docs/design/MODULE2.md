@@ -1,14 +1,17 @@
 # 模块二 · 档位化交互与模型管理
 
-> 状态：代码完成，离线测试 101 条全过；Host 半侧改动需重启 DSH 后做一次真机确认。
+> 🔴 **状态（2026-11-26）：已缩水。** 上下文挡位（300K / 600K / 1M）与档位条滑杆（`LevelSlider`）
+> **整块删除**，理由与决定见 [PRD.md](PRD.md) §5「模块 2 —— 不做」。本文保留改动前的设计记录，
+> 下文凡提到「上下文长度」「滑动条」「轨道 / 刻度」的段落**均已失效**，只作历史参考。
+> 现在页面只剩：当前模型（只读）+ 「恢复默认」；设置页只剩「默认推理强度」下拉与「费用超限时提示」开关。
 > 相关文件：[lib/client.js](../lib/client.js)、[lib/host.js](../lib/host.js)、[lib/model-management/levels.js](../lib/model-management/levels.js)、[.dev/model-management-test.mjs](../.dev/model-management-test.mjs)
 
 ## 一、定位
 
-把模型管理从「一堆英文下拉和术语」改成单页、全中文、从左到右的档位滑动：
+把模型管理从「一堆英文下拉和术语」改成单页、全中文的档位面板：
 
-- 推理挡位：关闭 → 服务商默认 → 低 → 中 → 高 → 最高（可选）
-- 上下文长度：300K → 600K（默认）→ 1M
+- 推理挡位：关闭 → 服务商默认 → 低 → 中 → 高 → 最高（可选）—— **推理档位的真实交互在输入框模型选择器底部的 chips，不在本页**
+- ~~上下文长度：300K → 600K（默认）→ 1M~~ —— **已删（假控件，从未进模型请求）**
 
 模块一（composer 模型座位）与模块三（复盘分析器 / 设置壳子）保持原行为；模块二只新增一个设置分区和一条保存接口。
 
@@ -19,12 +22,14 @@
 | 设置分区 | `settings.section`，`id: 'limbs-model'` | 新格子，不顶掉官方「模型（10）」与模块三「Limbs 配置（18）」 |
 | 菜单位置 | `order: 11` | 紧挨官方模型页，进入设置第一屏可见 |
 | 菜单名 | `label: () => '模型管理'` | 全中文，不随浏览器语言变英文 |
-| 保存接口 | `GET/PUT /limbs/model-settings` | Host 半侧注册的窄接口，只能读写两个档位字段 |
+| 保存接口 | `GET/PUT /limbs/model-settings` | Host 半侧注册的窄接口，只能读写推理档位这一个字段 |
 | 页面样式 | `lib/client.js` 的 `CSS`（`<style id="dsh-limbs-styles">`） | 与模块一/三同一份主题令牌，卸载即清理 |
 
-模块二没有改模块一的注册参数、优先级或选择逻辑。唯一的跨模块写入是：模型座位打开后把「最近模型名 + 是否声明 max 档」写进独立键 `dsh-limbs:last-model`，供模块二判断最高档是否可置灰；写入失败静默。
+模块二没有改模块一的注册参数、优先级或选择逻辑。唯一的跨模块写入是：模型座位打开后把「最近模型名 + 是否声明 max 档」写进独立键 `dsh-limbs:last-model`；写入失败静默。
 
 ## 三、档位配置结构
+
+> ⚠️ 本节描述的 UI 渲染已不存在（滑杆已删）。`levels.js` 现在只保留推理档位表，`CONTEXT_LEVELS` 已删。
 
 单一真源在 `lib/model-management/levels.js`：
 
@@ -38,20 +43,14 @@ export const REASONING_LEVELS = [
   { id: 'high', label: '高', shortLabel: '高', … },
   { id: 'max', label: '最高', shortLabel: '最高', … },
 ]
-
-export const CONTEXT_LEVELS = [
-  { id: '300k', label: '300K', statusLabel: '精简', … },
-  { id: '600k', label: '600K', statusLabel: '适中', isDefault: true, … },
-  { id: '1m',  label: '1M',  statusLabel: '充足', … },
-]
 ```
 
 增删档位只改数组；页面按数组渲染，不写死 5 档或 6 档。最高档额外受两个开关约束：
 
 | 开关 | 位置 | 行为 |
 |---|---|---|
-| `showMax` | `localStorage['dsh-limbs:level-config'] = {"showMax": false}`（缺省展示） | false 时轨道上不出现「最高」 |
-| `maxSupported` | 模块一写入的最近模型能力；没有记录按 false | false 时「最高」圆点置灰，点击显示「当前服务商不支持最高档」 |
+| `showMax` | `localStorage['dsh-limbs:level-config'] = {"showMax": false}`（缺省展示） | false 时档位表里不出现「最高」 |
+| `maxSupported` | 模块一写入的最近模型能力；没有记录按 false | false 时「最高」带 `disabledReason: 当前服务商不支持最高档` |
 
 Client 内置一份同构档位表用于 Host 缺席时降级；测试会逐项比对两份数据，防止漂移。
 
@@ -64,15 +63,12 @@ Client 内置一份同构档位表用于 Host 缺席时降级；测试会逐项�
 | `low` / `min` / `minimal` / `低` | `low` | |
 | `medium` / `mid` / `normal` / `balanced` / `中` | `medium` | |
 | `high` / `高` | `high` | |
-| `max` / `maximum` / `highest` / `xhigh` / `最高` | `max` | 服务商不支持时界面置灰并回退默认档 |
-| `300000` / `300K` | `300k` | |
-| `600000` / `600K` | `600k` | |
-| `1000000` / `1000K` / `1M` | `1m` | |
-| `128K` / `256K` / `131072` / `256000`… | `300k` | 模块三旧占位值，就近向上 |
-| `512K` / `524288` | `600k` | 模块三旧占位值，就近向上 |
+| `max` / `maximum` / `highest` / `xhigh` / `最高` | `max` | 服务商不支持时回退默认档 |
 | 其它无法识别的值 | 默认档 | 记录迁移日志，并 Toast 提示 |
 
-兼容旧字段名：推理 `reasoning` / `effort` / `reasoningEffort` / `reasoningLevel`；上下文 `context` / `contextLength` / `contextWindow` / `contextSize`。
+> 历史：`300000` / `600000` / `1M` / `128K` / `512K` 等上下文档位映射已随 `CONTEXT_LEVELS` 一起删除（2026-11-26）。
+
+兼容旧字段名：推理 `reasoning` / `effort` / `reasoningEffort` / `reasoningLevel`。旧数据里的 `context` 字段会被忽略（读时不再迁移）。
 
 迁移日志写入 `localStorage['dsh-limbs:model-migration-log']`（最多保留 20 条），同时 `console.info` 一条中文记录。
 
@@ -86,10 +82,10 @@ Client 内置一份同构档位表用于 Host 缺席时降级；测试会逐项�
 {
   "ok": true,
   "account": "current",
-  "settings": { "reasoning": "provider-default", "context": "600k", "updatedAt": 1763000000000 },
+  "settings": { "reasoning": "provider-default", "updatedAt": 1763000000000 },
   "revision": 3,
-  "levels": { "reasoning": [], "context": [], "defaults": {}, "showMax": true },
-  "defaults": { "reasoning": "provider-default", "context": "600k" }
+  "levels": { "reasoning": [], "defaults": {}, "showMax": true },
+  "defaults": { "reasoning": "provider-default" }
 }
 ```
 
@@ -97,7 +93,7 @@ Client 内置一份同构档位表用于 Host 缺席时降级；测试会逐项�
 
 ```json
 {
-  "settings": { "reasoning": "high", "context": "1m", "updatedAt": 1763000000001 },
+  "settings": { "reasoning": "high", "updatedAt": 1763000000001 },
   "baseRevision": 3
 }
 ```
@@ -121,14 +117,11 @@ Client 内置一份同构档位表用于 Host 缺席时降级；测试会逐项�
 
 ## 六、交互与可访问性
 
-- 拖动时按轨道比例吸附最近**可用**档，松手提交；拖动过程不写保存接口。
-- 点击刻度直接跳转；点到禁用刻度只弹出中文原因，不改变选择。
-- 轨道可 Tab 聚焦，显示 2px Focus Ring；`←/→`、`↑/↓`、`Home/End` 切换，方向键跳过禁用档。
-- `role="slider"` + `aria-valuemin/max/now` + 中文 `aria-valuetext`，例如「推理挡位：中，第 4 档，共 6 档」。
-- 当前档有实心圆点 + `✓` + 加粗文字；默认档有「默认」文字；禁用档圆点置灰 + `aria-disabled` + `title` 原因——颜色从来不是唯一信号。
-- 轨道填充与颜色过渡 180ms；`prefers-reduced-motion: reduce` 下关闭过渡。
-- 顶部状态区：当前模型名 + 推理摘要 + 上下文摘要；推理关闭时明确显示「推理已关闭」；服务商默认时显示完整继承说明。
-- 恢复默认：底部按钮 → `alertdialog` 二次确认 → 只写回 `reasoning` 与 `context`，当前模型名不变；失败回滚并 Toast。
+> ⚠️ 本节描述的滑杆交互（拖动吸附 / 点刻度 / Tab + 方向键 / Focus Ring / aria slider）**已整块删除**（2026-11-26）。现在页面是只读的：当前模型名 + 推理摘要 + 「恢复默认」。
+
+- 顶部状态区：当前模型名 + 推理摘要；推理关闭时明确显示「推理已关闭」；服务商默认时显示完整继承说明。
+- 恢复默认：底部按钮 → `alertdialog` 二次确认 → 只写回 `reasoning`，当前模型名不变；失败回滚并 Toast。
+- 推理档位的真实切换在输入框模型选择器底部的 chips（提供方默认 / Off / Low / High / Max），它真进 provider 的 `effort`。
 
 ## 七、离线测试
 
@@ -137,14 +130,14 @@ $env:ELECTRON_RUN_AS_NODE='1'
 & '<DSH 可执行文件>' .dev\model-management-test.mjs
 ```
 
-覆盖：档位顺序/默认档/最高档开关/禁用原因、旧配置映射表、Host 接口（账号分桶、409、最新时间优先、令牌、跨站、坏值、磁盘旧格式迁移、路由与令牌注入）、Client 仓库（迁移、本地保存、失败回滚、冲突采用、失效档回退）、页面（两个滑动条、默认标识、关闭态、键盘、禁用提示、二次确认、中文残留）。
+覆盖：档位顺序/最高档开关/禁用原因、旧配置映射表、Host 接口（账号分桶、409、最新时间优先、令牌、跨站、坏值、磁盘旧格式迁移、路由与令牌注入）、Client 仓库（迁移、本地保存、失败回滚、冲突采用、失效档回退）、页面（**已无滑动条**、二次确认、中文残留）。
 
-当前结果：**101 passed, 0 failed**。
+当前结果：**74 passed, 0 failed**（删滑杆前是 101 条）。
 
 ## 八、待确认项
 
 1. **真正跨设备同步**：当前 Host 文件是单机服务端持久化，同一 Host 的多窗口/多标签可同步；跨设备需要 DSH 账号后端接口，本插件没有这个通道。若要接，替换 `mmBridgeRequest` 的 transport 即可，UI 与冲突逻辑无需改。
 2. **当前模型选择仍是只读**：设置分区没有 session，无法用 `ctx.modelDirectories` 直接切换模型；页面展示模块一记住的最近模型名，切换仍在 composer 选择器。恢复默认按需求不改变模型。
 3. **最高档能力判断**：来自模块一读取的模型 `reasoning.efforts` 是否声明 `max`。如果服务商用了别的 id 表示最高档，需要补一个能力映射。
-4. **上下文档位可用性**：目前三档都可用；`buildLevels({ contextAvailable })` 已留出按服务商/模型置灰的入口。
+4. **上下文档位已删**：不再有 `contextAvailable` 入口；上下文挡位是假控件（从未进模型请求），**不做**，见 PRD §5。
 5. **Host 重启**：`lib/host.js` 的保存路由与令牌注入需要重启 DSH 才生效；仅刷新页面只会更新 Client。

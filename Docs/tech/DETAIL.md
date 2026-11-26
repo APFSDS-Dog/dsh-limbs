@@ -10,12 +10,12 @@ composer 的模型座位（`conversation.input.model`）。本插件以 `priorit
 
 设置 →「模型管理」是一个全中文单页：
 
-- **推理挡位**：关闭 → 服务商默认 → 低 → 中 → 高 → 最高（可选），横向滑动、点击刻度或键盘左右键切换。
-- **上下文长度**：300K → 600K（默认）→ 1M，顶部显示「600K 上下文 · 适中」。
+- **当前模型**：只读展示，切换仍在 composer 选择器里。
+- **推理摘要**：顶部胶囊显示「推理 · 服务商默认 / 已关闭」等状态。
 - **保存**：即时保存 + 乐观更新 + 失败回滚；Host 按账号保存到 `<DSH_HOME>/dsh-limbs/model-settings.json`，按 `updatedAt` 最新优先。
-- **恢复默认**：二次确认，只恢复两个档位字段，当前模型不变。
+- **恢复默认**：二次确认，只恢复推理档位字段，当前模型不变。
 
-最高档是否展示由 `localStorage['dsh-limbs:level-config']` 的 `showMax` 控制；服务商不支持时置灰并提示。完整映射表与协议见 [MODULE2.md](MODULE2.md)。
+> 2026-11-26 删除：**上下文挡位**（300K / 600K / 1M，假控件 —— 从未传给模型请求）与**档位条滑杆**（`LevelSlider`，与 chips 重复）。理由见 [PRD.md](../design/PRD.md) §5。推理档位的真实切换在模型选择器底部的 chips。
 
 ## 使用
 
@@ -57,7 +57,7 @@ profile 的 `cordis.patch.yml`：
 ## 限制
 
 - 没有「管理提供商」入口（刻意不做）：客户端插件没有打开设置页的导航接口，提供商仍用 `/model` 命令管理。
-- Host 半侧不联网；模块三只读会话日志，模块二只把两个档位字段写到 `<DSH_HOME>/dsh-limbs/model-settings.json`。
+- Host 半侧不联网；模块三只读会话日志，模块二只把推理档位字段写到 `<DSH_HOME>/dsh-limbs/model-settings.json`。
 - 模块二跨设备同步需要 DSH 账号后端接口，当前仅同一 Host 多窗口同步。
 - 不渲染 `conversation.input.model.label` / `.options` 子槽的第三方贡献。
 - 已寻址的 subagent 会话不暴露该座位。

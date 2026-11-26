@@ -6,7 +6,7 @@
  *      sidebar.right.pane.tab.title / conversation.session.header.utilities
  *      都以正确的 id、order、key 出现，且旧的选择器席位没被弄坏。
  *   2. 设置页走 Host Config（假 `configForms`）：读写经官方接口，不再落
- *      localStorage；三个字段是真实枚举，默认值来自 Host 侧规格。
+ *      localStorage；两个字段是真实枚举，默认值来自 Host 侧规格。
  *   3. 复盘面板走真数据：下拉来自 `modelDirectories`，「一键复盘」经
  *      `remote.commands` 跑 `/limbs-review`，报告区把 Markdown 渲染成 HTML
  *      （含 XSS 转义断言）。
@@ -187,7 +187,7 @@ check('the settings placeholder notice is gone', !source.includes('当前为界�
 // ── 1. 假 Host 接口（configForms + remote.commands + modelDirectories）──
 // 官方 `ctx.configForms.get(entryId)` 的窄面：快照 + 订阅 + 一次写入。
 const configFormsState = {
-  value: { context: '300k', effort: 'medium', costWarn: true },
+  value: { effort: 'medium', costWarn: true },
   revision: 1,
   writable: true,
   status: 'ready',
@@ -369,21 +369,13 @@ log('== settings section (Host Config)')
 const settingsView = render(settings.component, {})
 const selects = hosts(settingsView, 'select')
 const switchNode = settingsView.find((node) => node.props?.role === 'switch')
-check('two dropdowns', selects.length === 2, String(selects.length))
-const contextOptions = (selects[0]?.props.children || []).map((option) => option.props.children)
-check('context choices are the real enum',
-  JSON.stringify(contextOptions) === JSON.stringify(['300K', '600K', '1M']),
-  JSON.stringify(contextOptions))
-check('context values are the Host-level ids',
-  JSON.stringify((selects[0]?.props.children || []).map((option) => option.props.value))
-    === JSON.stringify(['300k', '600k', '1m']),
-  JSON.stringify((selects[0]?.props.children || []).map((option) => option.props.value)))
-const effortOptions = (selects[1]?.props.children || []).map((option) => option.props.children)
+check('one dropdown left after dropping the context row', selects.length === 1, String(selects.length))
+const effortOptions = (selects[0]?.props.children || []).map((option) => option.props.children)
 check('effort choices are the real enum and localized',
   JSON.stringify(effortOptions) === JSON.stringify(['关闭', '服务商默认', '低', '中', '高', '最高']),
   JSON.stringify(effortOptions))
 check('the page reads the Host value, not a local default',
-  selects[0]?.props.value === '300k', String(selects[0]?.props.value))
+  selects[0]?.props.value === 'medium', String(selects[0]?.props.value))
 check('switch exposes aria-checked', switchNode?.props?.['aria-checked'] === 'true',
   String(switchNode?.props?.['aria-checked']))
 check('switch is a native button', switchNode?.type === 'button')
@@ -394,9 +386,9 @@ check('controls are enabled when the Host accepts writes',
   selects[0]?.props.disabled === false && switchNode?.props?.disabled !== true)
 
 selects[0].props.onChange({ target: { value: '1m' } })
-check('context write goes through configForms', configFormWrites.at(-1)?.field === 'context'
+check('effort write goes through configForms', configFormWrites.at(-1)?.field === 'effort'
   && configFormWrites.at(-1)?.value === '1m', JSON.stringify(configFormWrites.at(-1)))
-check('context write targets the dsh-limbs entry', configFormWrites.at(-1)?.entryId === 'dsh-limbs',
+check('effort write targets the dsh-limbs entry', configFormWrites.at(-1)?.entryId === 'dsh-limbs',
   String(configFormWrites.at(-1)?.entryId))
 check('the old localStorage key is never written', storage.has('dsh-limbs:settings') === false,
   JSON.stringify([...storage.keys()]))
@@ -419,7 +411,7 @@ const settingsAgain = render(settings.component, {})
 const switchAgain = settingsAgain.find((node) => node.props?.role === 'switch')
 check('re-render reflects the Host value (switch off)', switchAgain?.props?.['aria-checked'] === 'false',
   String(switchAgain?.props?.['aria-checked']))
-check('re-render reflects the Host value (context 1M)',
+check('re-render reflects the Host value (effort 1m)',
   hosts(settingsAgain, 'select')[0]?.props.value === '1m',
   String(hosts(settingsAgain, 'select')[0]?.props.value))
 
@@ -438,7 +430,7 @@ for (const listener of Array.from(configFormListeners)) listener()
 const noFormsView = render(testApi.makeLimbsSettingsSection({
   get: (name) => (name === 'slots' ? slots : undefined),
 }), {})
-check('a missing configForms still renders the page', hosts(noFormsView, 'select').length === 2)
+check('a missing configForms still renders the page', hosts(noFormsView, 'select').length === 1)
 check('a missing configForms explains itself', textOf(noFormsView).includes('这几项暂时改不了'),
   textOf(noFormsView).slice(0, 160))
 
