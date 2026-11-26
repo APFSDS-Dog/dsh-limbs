@@ -405,6 +405,16 @@ switchNode.props.onClick()
 check('switch write goes through configForms', configFormWrites.at(-1)?.field === 'costWarn'
   && configFormWrites.at(-1)?.value === false, JSON.stringify(configFormWrites.at(-1)))
 
+// `useSyncExternalStore` 要求 getSnapshot 在数据未变时返回**同一引用**；
+// 每次 new 一个对象会让 React 判定「状态一直在变」并无限重渲染，
+// 最终 `Maximum update depth exceeded` → 整个设置分区白屏（真机踩过）。
+const settingsStore = testApi.createLimbsSettingsStore(configForms.get('dsh-limbs'))
+const firstSnapshot = settingsStore.read()
+const secondSnapshot = settingsStore.read()
+check('the settings snapshot is referentially stable while nothing changed',
+  firstSnapshot === secondSnapshot,
+  'read() returned a fresh object on every call — React will re-render forever')
+
 const settingsAgain = render(settings.component, {})
 const switchAgain = settingsAgain.find((node) => node.props?.role === 'switch')
 check('re-render reflects the Host value (switch off)', switchAgain?.props?.['aria-checked'] === 'false',
