@@ -288,6 +288,29 @@ def has_git():
         return False
 
 
+def git_tracked_files(subdir):
+    """返回 (已被 git 追踪的相对路径集合, 错误说明)。
+
+    用 `git ls-files -z` 而不是查磁盘：**磁盘上有 ≠ 能 clone 得到**。
+    账本 `存档` 列指向一份只存在于本机、没入库的 devlog 时，
+    本机一切正常、clone 到别的机器就断链 —— 只有查 git 才看得见。
+    `-z` 避免中文路径被 quotespath 转义成 `\346\250\241` 这种形态。
+    """
+    try:
+        out = subprocess.run(
+            ['git', 'ls-files', '-z', '--', subdir],
+            cwd=ROOT, capture_output=True, timeout=20)
+    except FileNotFoundError:
+        return None, '没装 git'
+    except Exception as e:                                  # 超时等
+        return None, f'git 调用失败: {e}'
+    if out.returncode != 0:
+        msg = (out.stderr or b'').decode('utf-8', 'replace').strip().splitlines()
+        return None, (msg[0][:120] if msg else f'git exit {out.returncode}')
+    raw = (out.stdout or b'').decode('utf-8', 'replace')
+    return {p for p in raw.split('\0') if p}, None
+
+
 def date_guard():
     """检查各文档顶部「最后核对 / 最后更新」是否落后于它依据的文件。
 
@@ -762,15 +785,21 @@ def main():
             ok.append(("「最后核对」未落后于依据文件", True, note))
 
     # ── 16. 任务账格式合法（第 5 轮新增）───────────────
-    #  守两件事：账行 id 形如 t-YYYYMMDD-NN 且不重复；状态只有四值。
+    #  守三件事：账行 id 形如 t-YYYYMMDD-NN 且不重复；状态只有四值；
+    #  `存档` 列不是 `—` 时，那份 devlog **必须被 git 追踪**（2026-11-26 新增第 3 条）。
     #  ⚠️ 刻意**不**守「id 必须有同名 devlog」：模板未初始化时示例行必然没有 devlog，
     #     会让「只红占位符一项」这个已知预期失效；且 devlog 会随 git mv 归档，误报率高。
     #     宁可只守格式与唯一性 —— 这两条才是真会腐坏的地方。
+    #  ⚠️ 第 3 条查的是 **git 追踪**，不是磁盘存在：`t-20261125-03` 就是这么漏的 ——
+    #     文件躺在磁盘上、账行也写了，但没入库；本机一切正常，clone 后账本就断链。
     _prog = P('PROJECT_PROGRESS.md')
     if not os.path.exists(_prog):
         ok.append(("任务账格式合法", None, "（无 PROJECT_PROGRESS.md，跳过）"))
     else:
         _rows, _bad, _seen = [], [], set()
+        # 账行六列：id | 标题 | 状态 | 结论 | 存档 | next  → 存档在下标 4
+        _ARCHIVE_COL = 4
+        _archive_refs = []          # [(id, 存档值)]
         for _ln in read(_prog).splitlines():
             _m = re.match(r'^\|\s*`([^`]+)`\s*\|', _ln)
             if not _m:
@@ -790,6 +819,36 @@ def main():
             _seen.add(_rid)
             if len(_cells) >= 3 and _cells[2] not in ('done', 'doing', 'blocked', 'dropped'):
                 _bad.append(f"{_rid} 状态={_cells[2]!r}（只许 done/doing/blocked/dropped）")
+            if len(_cells) > _ARCHIVE_COL:
+                _arc = _cells[_ARCHIVE_COL]
+                if _arc and _arc not in ('—', '-', '–'):
+                    _archive_refs.append((_rid, _arc))
+
+        #  子检查 3：存档列指向的 devlog 必须在 git 里。
+        #  git 不可用 → 跳过（缺席不算错，与技能检查同理），不混进 _bad。
+        if _archive_refs:
+            _tracked, _git_err = git_tracked_files('Docs/devlog')
+            if _tracked is None:
+                ok.append(("任务账存档已入库", None,
+                           f"（{_git_err}，无法核对，跳过）"))
+            else:
+                _stems = {}
+                for _p in _tracked:
+                    _base = os.path.basename(_p)
+                    if _base.startswith('t-') and _base.endswith('.md'):
+                        # t-YYYYMMDD-NN_摘要.md → 取 id 部分
+                        _stems.setdefault(_base.split('_', 1)[0], []).append(_base)
+                _missing = []
+                for _rid, _arc in _archive_refs:
+                    # 兼容两种写法：存档格写 id，或写完整文件名
+                    _key = _arc[:-3] if _arc.endswith('.md') else _arc
+                    _key = _key.split('_', 1)[0] if _key.startswith('t-') else _key
+                    if _key not in _stems:
+                        _missing.append(f"账行 {_rid} 的存档 {_arc} 未入库（clone 后会消失）")
+                ok.append(("任务账存档已入库", not _missing,
+                           '; '.join(_missing) if _missing
+                           else f"（{len(_archive_refs)} 条存档引用全部在 git 里）"))
+
         ok.append(("任务账格式合法", not _bad,
                    '; '.join(_bad) if _bad else f"（{len(_rows)} 条账行）"))
 
