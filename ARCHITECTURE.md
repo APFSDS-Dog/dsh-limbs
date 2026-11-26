@@ -122,3 +122,4 @@ lib/xxx  →  （加载 / 导入）  →  （运行期结构）  →  （使用�
 13. **模块八的配置通道只碰一个文件**：`lib/handoff-config.js` 的读写范围**只有** `<项目根>/.dsh/handoff.yaml`；Client 不直接写文件。PUT 必须是**补丁**（只含提交的键），从默认值起算会把没提交的 `write: true` 抹掉（真机踩过）。
 14. **桌面端的两条特殊事实**（模块八目视时踩出来的）：① 桌面端**不经过** Host 渲染 `index.html`，`webServer.tapIndex` 无效 —— 要给页面送全局，须订阅 `webserver/index-inject` 推一行 `kind: 'global'`；② 桌面主窗口 Origin 是 `dsh-app://app`，同源校验必须放行它（列表只有这一项），否则桌面端每个 `/limbs/*` 请求都 403。
 15. **客户端一个包只有一个 bundle**：`dsh.client` 没有 entry 字段，浏览器侧 `require` 只解析已注册包名、不支持相对路径。所以模块八的 UI 只能留在 `lib/client.js` 里（新开一节 + 新 style 块），不能另开一个 `<x>.client.js` 再 import。
+16. **模块七写盘后必须「先 `git add`，再跑自检」**：`check_docs.py` 的「任务账存档已入库」查 `git ls-files`，新写的 devlog 不入索引时那道闸**必然**红 → 真写永远被撤回、还白扣一张令牌（`踩坑录.md` #17）。`stageForCheck` 只入暂存区**不提交**；自检报红时 `rollbackWrite` 之后还要 `unstageAfterRollback` 把索引退回（仓库无首次提交时 `git restore --staged` 会失败，已退回 `git rm --cached`）。**别调换这两个调用的顺序。**

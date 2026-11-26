@@ -15,6 +15,7 @@
  * 只读：除了自己建的临时目录（退出时统一清理），不碰仓库里任何文件。
  */
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -61,6 +62,8 @@ import {
   requestHandoffToken,
   resolveHandoffConfig,
   searchLedger,
+  stageForCheck,
+  unstageAfterRollback,
   upsertLedgerRow,
   validateLedgerEntry,
 } from '../lib/handoff.js'
@@ -223,7 +226,19 @@ check('第 1 段是账表滑窗、不超过 10 行',
   renderLedgerWindow(inputs.ledgerRows).split('\n').length
     === 2 + Math.min(10, inputs.ledgerRows.length),
   String(renderLedgerWindow(inputs.ledgerRows).split('\n').length))
-check('第 1 段渲染出真实 id', packed.includes('`t-20261120-02`'))
+// ⚠️ 这条原来写死 `t-20261120-02`。账本只增行，滑窗取最近 10 条 ——
+// 账行一多，那一条就被挤出窗口，断言假红（2026-11-26 加完账行当场撞上）。
+// 改成对着**当前账本**算窗口，不再依赖任何一个具体 id。
+const ledgerWindowIds = inputs.ledgerRows.slice(-10).map(row => row.id)
+const ledgerWindowText = renderLedgerWindow(inputs.ledgerRows)
+check('第 1 段渲染出真实 id',
+  ledgerWindowIds.length > 0
+  && ledgerWindowIds.every(id => ledgerWindowText.includes('`' + id + '`')),
+  `窗口 ${ledgerWindowIds.join(',')}`)
+check('第 1 段只取最近 10 条（更早的账行不进窗口）',
+  inputs.ledgerRows.length <= 10
+  || !ledgerWindowText.includes('`' + inputs.ledgerRows[0].id + '`'),
+  `共 ${inputs.ledgerRows.length} 条，窗口 ${ledgerWindowIds.length} 条`)
 check('第 2 段是待拍板且不剪',
   packed.includes('## 二、待拍板')
   && (inputs.pending === '' || packed.includes(inputs.pending.trim().slice(0, 10))))
@@ -551,6 +566,32 @@ const cloneDevlogDir = join(cloneRoot, 'Docs', 'devlog')
 const cloneOriginalProgress = await readFile(cloneProgress, 'utf8')
 const cloneDevlogsBefore = (await readdir(cloneDevlogDir)).filter(n => n.startsWith('t-')).sort()
 
+// ⚠️ 副本必须**真的是 git 仓库**（2026-11-26 补，见 `踩坑录.md` #17）。
+// 之前副本没有 `.git`，于是 `check_docs.py` 的「任务账存档已入库」走的是
+// `git_tracked_files() → None → ⏭️ 跳过`，那一项**从来没真跑过** ——
+// 于是一个「真写收尾必然失败」的死锁在 191 条断言全绿的情况下藏了整整一轮。
+// 教训：**跳过 ≠ 通过**。要让检查真跑，就得把它的前置条件造出来。
+async function gitIn(cwd, args) {
+  return new Promise(done => {
+    execFile('git', args, { cwd, windowsHide: true, timeout: 60_000 },
+      (error, stdout, stderr) => done({
+        code: error === null ? 0 : (typeof error.code === 'number' ? error.code : 1),
+        text: `${stdout ?? ''}${stderr ?? ''}`,
+      }))
+  })
+}
+{
+  const identity = ['-c', 'user.email=test@local', '-c', 'user.name=clone']
+  const init = await gitIn(cloneRoot, ['init', '-q'])
+  check('副本已初始化为 git 仓库（否则自检的入库项会被跳过而不是通过）', init.code === 0, init.text)
+  await gitIn(cloneRoot, ['add', '-A'])
+  const commit = await gitIn(cloneRoot, [...identity, 'commit', '-q', '-m', 'clone baseline'])
+  check('副本基线已提交（HEAD 存在，restore --staged 才可用）', commit.code === 0, commit.text.slice(0, 200))
+  const tracked = await gitIn(cloneRoot, ['ls-files', '--', 'Docs/devlog'])
+  check('副本基线的 devlog 已在索引里（自检的入库项有东西可查）',
+    tracked.code === 0 && tracked.text.includes('Docs/devlog/t-'), tracked.text.slice(0, 200))
+}
+
 const CLONE_ENTRY = {
   title: '副本写盘验证',
   status: 'doing',
@@ -636,6 +677,10 @@ await writeFile(join(cloneRoot, '.dsh', 'handoff.yaml'), 'write: true\nledgerRec
     typeof redRun.check?.code === 'number' && redRun.check.code !== 0 && redRun.check.ok === false,
     JSON.stringify({ code: redRun.check?.code, ok: redRun.check?.ok }))
 
+  // 撤回要把**索引**也退回去，否则工作区干净了、暂存区还脏着。
+  const redStaged = (await gitIn(cloneRoot, ['diff', '--cached', '--name-only'])).text.trim()
+  check('③ 撤回后暂存区也干净了（git add 的效果被退掉）', redStaged === '', redStaged)
+
   // 令牌已被上面那次消费掉 —— 正好验「一次性」
   const reuse = await commitHandoff({
     ctx: hostCtx, projectRoot: cloneRoot, sessionId: 'clone', token: issued.token,
@@ -654,6 +699,18 @@ await writeFile(join(cloneRoot, '.dsh', 'handoff.yaml'), 'write: true\nledgerRec
   })
   check('真写成功（wrote=true）', greenRun.wrote === true, JSON.stringify(greenRun.reason))
   check('真写后自检通过', greenRun.check?.ok === true, JSON.stringify(greenRun.check?.code))
+
+  // ⚠️ 最值钱的一条：证明「任务账存档已入库」这一项是**真跑绿的**，
+  // 不是被跳过的。副本以前没有 .git，那一项永远走 `⏭️ 跳过` —— 跳过看着和通过
+  // 一样都是绿的，于是一个必然失败的死锁藏了一整轮（踩坑录 #17）。
+  const greenOutput = String(greenRun.check?.output ?? '')
+  check('自检里「任务账存档已入库」这一项真跑了（不是跳过）',
+    greenOutput.includes('任务账存档已入库')
+    && !/⏭️\s+任务账存档已入库/.test(greenOutput),
+    greenOutput.split('\n').find(line => line.includes('任务账存档已入库')) ?? '（输出里没有这一项）')
+  check('自检里「任务账存档已入库」这一项是 ✅',
+    /✅ 任务账存档已入库/.test(greenOutput),
+    greenOutput.split('\n').find(line => line.includes('任务账存档已入库')) ?? '（输出里没有这一项）')
 
   const afterGreen = (await readdir(cloneDevlogDir)).filter(n => n.startsWith('t-')).sort()
   check('devlog 真的出现了', afterGreen.length === cloneDevlogsBefore.length + 1,
@@ -675,6 +732,17 @@ await writeFile(join(cloneRoot, '.dsh', 'handoff.yaml'), 'write: true\nledgerRec
     afterProgress.indexOf(newId) > afterProgress.indexOf('### v0.2'))
   check('写后账表仍能解析出合法账行',
     parseLedgerRows(afterProgress).filter(row => row.id === newId).length === 1)
+
+  // ── 死锁本身（踩坑录 #17）：真写必须自己把存档送进 git 索引 ──────────
+  check('真写后 devlog 已被 git add（自检的入库项才可能通过）',
+    (await gitIn(cloneRoot, ['ls-files', '--', `Docs/devlog/${newFile}`])).text.trim() !== '',
+    newFile)
+  check('真写后账表也已在索引里（内容变了要重新入索引）',
+    (await gitIn(cloneRoot, ['ls-files', '--', 'PROJECT_PROGRESS.md'])).text.trim() !== '')
+  check('入索引不算提交（HEAD 仍是副本基线）',
+    (await gitIn(cloneRoot, ['log', '-1', '--format=%s'])).text.trim() === 'clone baseline')
+  check('真写结果的 staging 字段写明已入索引',
+    greenRun.staging?.tracked === true, JSON.stringify(greenRun.staging))
 }
 
 // ── 断言 ④：dry-run 仍然不写 ───────────────────────────────────────
