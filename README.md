@@ -282,15 +282,17 @@ icon.svg            # 插件图标
 $env:ELECTRON_RUN_AS_NODE='1'
 & '<DSH 可执行文件>' .dev\postmortem-test.mjs
 & '<DSH 可执行文件>' .dev\postmortem-test.mjs --print   # 附带打印一份样例报告
-& '<DSH 可执行文件>' .dev\model-management-test.mjs     # 模块二：101 条断言
+& '<DSH 可执行文件>' .dev\model-management-test.mjs     # 模块二档位
 & '<DSH 可执行文件>' .dev\open-settings-test.mjs        # 设置跳转回归
-& '<DSH 可执行文件>' .dev\ui-shell-test.mjs             # 模块三 UI 回归：48 条
-& '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七：173 条（含打印拼装文本与 dry-run 报告、令牌五条）
-& '<DSH 可执行文件>' .dev\handoff-config-test.mjs      # 模块八段 1：inject 开关 + 配置接口：105 条
-& '<DSH 可执行文件>' .dev\projects-ui-test.mjs         # 模块八段 2：左栏入口 + 一级页：64 条
-& '<DSH 可执行文件>' .dev\projects-detail-test.mjs     # 模块八段 3：二级页：55 条
-& '<DSH 可执行文件>' tools\render-check.mjs            # 模块一选择器回归
+& '<DSH 可执行文件>' .dev\ui-shell-test.mjs             # 模块三 UI 回归
+& '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七（含打印拼装文本与 dry-run 报告、令牌五条）
+& '<DSH 可执行文件>' .dev\handoff-config-test.mjs       # 模块八段 1：inject 开关 + 配置接口
+& '<DSH 可执行文件>' .dev\projects-ui-test.mjs          # 模块八段 2：左栏入口 + 一级页
+& '<DSH 可执行文件>' .dev\projects-detail-test.mjs      # 模块八段 3：二级页
+& '<DSH 可执行文件>' tools\render-check.mjs             # 模块一选择器回归
 ```
+
+> 条数以每套脚本自己的输出为准（`passed, 0 failed`），**不在文档里写死** —— 加了断言就会过期。
 
 调试样式最快的办法：DevTools 里直接改 `<style id="dsh-limbs-styles">`（或模块八的 `dsh-limbs-m8-styles`），满意后再同步回 `lib/client.js` 的 `CSS` / `M8_CSS` 模板字符串。
 

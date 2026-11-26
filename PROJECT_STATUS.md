@@ -5,7 +5,7 @@
 > 这个任务做了什么 → `Docs/devlog/`
 > 怎么跑起来 → `README.md`
 >
-> 最后核对：2026-11-25（⚠️ 每次改动**逐项对照磁盘实际文件**，不凭记忆）
+> 最后核对：2026-11-26（⚠️ 每次改动**逐项对照磁盘实际文件**，不凭记忆）
 > `check_docs.py` 会守这一行：日期早于本文件最后一次 git 提交时给 ⚠️，写坏成非 `YYYY-MM-DD` 则报红。
 
 ---
@@ -48,15 +48,15 @@
 > ⚠️ 本小节**是唯一允许写具体数字的地方** —— 因为它标了核对日期，是"**当时的事实**"，不是永久断言。
 > 每次核对**重写整节**，不要追加（追加必腐坏）。
 
-**核对日期：2026-11-25**
+**核对日期：2026-11-26**
 
 | 项 | 实测值 | 怎么核的 |
 |---|---|---|
 | JS / MJS 源文件 | `lib/` 5 个 · `tools/` 1 个 | `Get-ChildItem lib -Recurse -Filter *.js` / `tools/*.mjs` |
 | PowerShell 工具 | 6 个（真机操作用） | `ls tools/*.ps1` |
-| 文档数 | 扫描 34 份 | `pwsh -File ./check-docs.ps1` |
-| 文档自检 | **14/14 通过**（2 项因技能未装跳过） | 同上 —— ⚠️ **不能用 `python check_docs.py`**，本机 `python` 是 WindowsApps 占位桩 |
-| 依赖 / 插件 | 无自带依赖（`node_modules` 不进包）；peer 为宿主提供的 `cordis` / `typert-protocol` / `react` | `package.json` 的 `peerDependencies` |
+| 文档数 | 扫描 37 份 | `pwsh -File ./check-docs.ps1` |
+| 文档自检 | **全绿**（技能相关 2 项因未安装跳过） | 同上 —— ⚠️ **不能用 `python check_docs.py`**，本机 `python` 是 WindowsApps 占位桩；**项数以脚本输出为准，不写死** |
+| 依赖 / 插件 | 无自带依赖（`node_modules` 不进包）；peer 为宿主提供的 `cordis` / `typert-protocol` / `react`，另加 **`@deepseek-ai/schemastery`（optional，模块三 Host Config 用）** | `package.json` 的 `peerDependencies` |
 | 离线测试 | 八套（模型管理 / UI 壳 / 复盘 / 设置跳转 / 窗口交接 / 模块八配置 / 模块八一级页 / 模块八二级页），另有选择器回归 | `$env:ELECTRON_RUN_AS_NODE='1'; & '<DSH exe>' .dev\<test>.mjs`（清单见 `README.md` §开发） |
 ---
 
