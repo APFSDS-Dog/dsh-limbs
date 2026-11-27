@@ -17,8 +17,10 @@
   },
   "files": [
     "lib/host.js",
+    "lib/host-status.js",
     "lib/handoff.js",
     "lib/handoff-config.js",
+    "lib/review-store.js",
     "lib/client.js",
     "lib/model-management",
     "cordis.patch.yml",

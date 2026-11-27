@@ -57,7 +57,7 @@ profile 的 `cordis.patch.yml`：
 ## 限制
 
 - 没有「管理提供商」入口（刻意不做）：客户端插件没有打开设置页的导航接口，提供商仍用 `/model` 命令管理。
-- Host 半侧不联网；模块三只读会话日志，模块二只把推理档位字段写到 `<DSH_HOME>/dsh-limbs/model-settings.json`。
+- Host 半侧不联网；模块三读会话日志并把报告写到 `<DSH_HOME>/dsh-limbs/reviews/`，模块二只把推理档位字段写到 `<DSH_HOME>/dsh-limbs/model-settings.json`。
 - 模块二跨设备同步需要 DSH 账号后端接口，当前仅同一 Host 多窗口同步。
 - 不渲染 `conversation.input.model.label` / `.options` 子槽的第三方贡献。
 - 已寻址的 subagent 会话不暴露该座位。

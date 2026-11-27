@@ -410,7 +410,9 @@ console.log(`结果：PASS ${passed} / FAIL ${failed} / 共 ${passed + failed}`)
 if (failed > 0) process.exitCode = 1
 
 // 打印一份真实渲染结果，肉眼过一遍排版
+// ⚠️ 这里打的是 `reviewConversation` 的产物（含置顶摘要），不是裸的
+//    `generateMarkdown` —— 用户实际看到的是前者，肉眼该过的也是它。
 if (process.argv.includes('--print')) {
   console.log('\n' + '─'.repeat(52) + '\n')
-  console.log(generateMarkdown(analysisA))
+  console.log(reviewConversation(applyCtx, { id: sessionA.id }))
 }

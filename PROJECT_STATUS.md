@@ -5,7 +5,7 @@
 > 这个任务做了什么 → `Docs/devlog/`
 > 怎么跑起来 → `README.md`
 >
-> 最后核对：2026-11-26（⚠️ 每次改动**逐项对照磁盘实际文件**，不凭记忆）
+> 最后核对：2026-11-27（⚠️ 每次改动**逐项对照磁盘实际文件**，不凭记忆）
 > `check_docs.py` 会守这一行：日期早于本文件最后一次 git 提交时给 ⚠️，写坏成非 `YYYY-MM-DD` 则报红。
 
 ---
@@ -36,7 +36,7 @@
 | 工程根 | `D:\Projects\dsh-limbs`（**换机器按主机名查 `Docs/tech/机器环境档案.md`**） |
 | 技术栈 | 原生 ESM JavaScript（**无构建步骤**）+ DSH 插件宿主 API（cordis） |
 | 当前阶段 | v0.2（v0.1.0 已发布上架） |
-| 数据源 | **无数据表** —— 插件只读写 JSON 配置与 `<DSH_HOME>` 下的状态文件 |
+| 数据源 | **无数据表** —— 插件只读写 JSON 配置与 `<DSH_HOME>` 下的状态文件（`dsh-limbs/`：模型档位、令牌、**复盘报告**） |
 | 发布物 | `lib/` · `Docs/` · `locale/` · `icon.svg` · `cordis.patch.yml` · `README.md`（见 `package.json` 的 `files`） |
 
 > ⚠️ **多机开发**：路径按 `hostname` 查表，别把某一台机器的盘符写成"工程根"。机器相关路径统一放 `Docs/tech/机器环境档案.md`。
@@ -48,16 +48,16 @@
 > ⚠️ 本小节**是唯一允许写具体数字的地方** —— 因为它标了核对日期，是"**当时的事实**"，不是永久断言。
 > 每次核对**重写整节**，不要追加（追加必腐坏）。
 
-**核对日期：2026-11-26**
+**核对日期：2026-11-27**
 
 | 项 | 实测值 | 怎么核的 |
 |---|---|---|
-| JS / MJS 源文件 | `lib/` 4 个 · `tools/` 1 个（`.mjs`） | `Get-ChildItem lib -Recurse -Filter *.js` / `tools/*.mjs` |
-| PowerShell 工具 | 6 个（真机操作用） | `ls tools/*.ps1` |
+| JS / MJS 源文件 | `lib/` 5 个 · `tools/` 1 个（`.mjs`） | `Get-ChildItem lib -Recurse -Filter *.js` / `tools/*.mjs` |
+| PowerShell 工具 | 7 个（真机操作用） | `ls tools/*.ps1` |
 | 文档数 | **不写死** —— 以 `check-docs.ps1` 的「扫描文档: N 份」为准 | `pwsh -File ./check-docs.ps1` |
 | 文档自检 | **全绿**（技能相关 2 项因未安装跳过） | 同上 —— ⚠️ **不能用 `python check_docs.py`**，本机 `python` 是 WindowsApps 占位桩；**项数以脚本输出为准，不写死** |
 | 依赖 / 插件 | 无自带依赖（`node_modules` 不进包）；peer 为宿主提供的 `cordis` / `typert-protocol` / `react`，另加 **`@deepseek-ai/schemastery`（optional，模块三 Host Config 用）** | `package.json` 的 `peerDependencies` |
-| 离线测试 | **不写死条数** —— 九套脚本：模型管理 / UI 壳 / 复盘 / 设置跳转 / 窗口交接 / 模块八配置 / 模块八一级页 / 模块八二级页，另有选择器回归；条数以各脚本自己的输出为准 | `$env:ELECTRON_RUN_AS_NODE='1'; & '<DSH exe>' .dev\<test>.mjs`（清单见 `README.md` §开发） |
+| 离线测试 | **不写死套数与条数** —— 模型管理 / UI 壳 / 复盘 / **复盘落盘** / **落点冒烟** / 设置跳转 / 窗口交接 / 模块八配置 / 模块八一级页 / 模块八二级页，另有选择器回归；清单与条数都以 `README.md` §开发 与各脚本自己的输出为准 | `$env:ELECTRON_RUN_AS_NODE='1'; & '<DSH exe>' .dev\<test>.mjs` |
 ---
 
 ## 三、目录职责
@@ -68,7 +68,7 @@
 | 目录 | 装什么 | 不进 git？ |
 |---|---|---|
 | `Docs/` | 全部文档（**含随包发布的插件文档**，见 `DOCS_LAYOUT.md`） | — |
-| `lib/` | 全部源码：Host 半边 `host.js` · Client 半边 `client.js` · `model-management/` | — |
+| `lib/` | 全部源码：Host 半边 `host.js` · Client 半边 `client.js` · `model-management/` · 复盘报告落盘 `review-store.js` | — |
 | `tools/` | 真机操作与回归脚本（PowerShell + mjs） | — |
 | `locale/` | 插件多语言 | — |
 | `.dev/` | 离线测试与只读排查脚本 | ⚠️ 仅忽略 `node_modules/`（脚本入库） |

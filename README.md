@@ -58,7 +58,15 @@ DSH（DeepSeek Harness）的模型选择座位 `conversation.input.model` 默认
 | 工具 | `analyze_conversation_efficiency`，模型可自行调用；参数 `top_n` 控制归因榜单长度（默认 3） |
 | 命令 | `/limbs-review [top_n]`，直接面向人，不经过模型 |
 
-报告包含：总账、费用大头（Top N 工具归因）、上下文构成、效率诊断、效率评分、优化建议。
+报告包含：置顶的**最该做的三条**（摘要），以及全文六章 —— 总账、费用大头（Top N 工具归因）、上下文构成、效率诊断、效率评分、优化建议。
+
+> 置顶那一节只是把「优化建议」的前 3 条原样搬到顶部，**不新生成**；第六章的全文照旧保留。报告生成逻辑没变，变的只是顺序。
+
+### 报告落盘：切会话 / 重启都还在
+
+复盘跑完会自动写一份到 `<DSH_HOME>/dsh-limbs/reviews/<sessionId>.md`（Host 侧写盘，受 `sandboxPolicy` 权限档约束：`read-only` 会话不写并明说原因）。面板打开时先读这个文件：有就显示，并在标题旁标 **生成于 <时间>**（时间取自文件的 mtime，正文保持纯报告）。按钮随之变成「重新复盘」，覆盖同一份文件。
+
+**清理策略**（每次写盘后跑一次，实现在 `lib/review-store.js` 的 `pruneReviewReports`）：只保留同时满足两个条件的报告 —— 最近 **20 份**、且 **30 天内**；任一条不满足就从最旧删起。这样数量和时长两个方向都不会永久增长。
 
 ### 数据源：投影优先，事件流兜底
 
@@ -232,7 +240,7 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 
 ## 数据与隐私
 
-- 模块三（[lib/host.js](lib/host.js) 的复盘分析器）只读：读会话事件流与投影、注册一个工具和一条命令，不写会话日志、不联网。
+- 模块三（[lib/host.js](lib/host.js) 的复盘分析器）只读会话事件流与投影、注册一个工具和一条命令，不写会话日志、不联网。复盘完会把报告写到 `<DSH_HOME>/dsh-limbs/reviews/<sessionId>.md`（本机状态目录，**不进 git**，也不进项目），并按「最近 20 份 / 30 天内」清理旧文件。
 - 模块二的 Host 保存接口只写 `<DSH_HOME>/dsh-limbs/model-settings.json`：推理档位字段 + 账号分桶 + 时间戳，不写会话日志、不联网、不碰模型目录。
 - 模块三不发送任何模型请求，报告在本地算完直接返回。
 - 所有模型数据来自官方 `ctx.modelDirectories`（底层 `session.modelCatalog` / `session.selectModel`），插件自己不维护第二份目录。
@@ -257,6 +265,7 @@ backdrop-filter: var(--dsw-menu-backdrop-filter);
 package.json        # bundle 清单：dsh.bundle.patch + dsh.client
 cordis.patch.yml    # 加载器补丁：插入 dsh-limbs 条目
 lib/host.js         # Host 半侧：模块三复盘分析器 + 模块二保存接口 + 模块七/八挂载点
+lib/review-store.js # 模块三：复盘报告落盘 / 读回 / 清理（B2）
 lib/handoff.js      # 模块七：窗口交接（assemble / lookup / 令牌 / commit，纯 Host 半边）
 lib/handoff-config.js # 模块八：项目管理配置接口（/limbs/handoff-config + /limbs/handoff-project）
 lib/client.js       # Client 半侧：座位注册 + 双栏抽屉 + 模型管理页 + 模块八项目管理页 + 全部 CSS
@@ -282,17 +291,31 @@ icon.svg            # 插件图标
 $env:ELECTRON_RUN_AS_NODE='1'
 & '<DSH 可执行文件>' .dev\postmortem-test.mjs
 & '<DSH 可执行文件>' .dev\postmortem-test.mjs --print   # 附带打印一份样例报告
+& '<DSH 可执行文件>' .dev\review-store-test.mjs         # 模块三报告落盘 / 读回 / 清理
+& '<DSH 可执行文件>' .dev\review-home-smoke.mjs          # 用真实 DSH_HOME 冒烟落点（写完就删）
 & '<DSH 可执行文件>' .dev\model-management-test.mjs     # 模块二档位
 & '<DSH 可执行文件>' .dev\open-settings-test.mjs        # 设置跳转回归
 & '<DSH 可执行文件>' .dev\ui-shell-test.mjs             # 模块三 UI 回归
 & '<DSH 可执行文件>' .dev\handoff-test.mjs              # 模块七（含打印拼装文本与 dry-run 报告、令牌五条）
 & '<DSH 可执行文件>' .dev\handoff-config-test.mjs       # 模块八段 1：inject 开关 + 配置接口
 & '<DSH 可执行文件>' .dev\projects-ui-test.mjs          # 模块八段 2：左栏入口 + 一级页
+& '<DSH 可执行文件>' .dev\host-bridge-test.mjs        # Host 三桥挂载（webServer 迟到 / 缺席 / 重复）
 & '<DSH 可执行文件>' .dev\projects-detail-test.mjs      # 模块八段 3：二级页
 & '<DSH 可执行文件>' tools\render-check.mjs             # 模块一选择器回归
 ```
 
 > 条数以每套脚本自己的输出为准（`passed, 0 failed`），**不在文档里写死** —— 加了断言就会过期。
+
+真机复查（**只读**、重启 DSH 后跑）：
+
+```pwsh
+pwsh -File tools\host-diagnose.ps1       # ① 三桥挂没挂 ② 诊断文件 ③ 路由探活 ④ 源码/进程时间对照
+pwsh -File tools\review-store-check.ps1  # ⑤ 报告落盘的落点是否成立
+```
+
+`host-diagnose.ps1` 是排查「面板显示 Host 接口没挂上」时的**第一条命令**。它先验对照组（未注册路径也必须是 404，否则 404 不能当证据），再逐个探六条 `/limbs/*`，最后读插件自己写的 `<DSH_HOME>/dsh-limbs/host-status.json`。
+
+`review-store-check.ps1` 判据五条：目录里有报告 / 正文含「最该做的三条」/ 章节号没乱 / 份数 ≤ 20 / 正文无 frontmatter。全 PASS 才算 B2 在真机上成立。
 
 调试样式最快的办法：DevTools 里直接改 `<style id="dsh-limbs-styles">`（或模块八的 `dsh-limbs-m8-styles`），满意后再同步回 `lib/client.js` 的 `CSS` / `M8_CSS` 模板字符串。
 

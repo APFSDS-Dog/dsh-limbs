@@ -4,7 +4,7 @@
 > **`DOCS_LAYOUT.md` 管「文档该放哪」；本文件管「工程长什么样、代码规则是什么」。**
 > 那边管文档归属，这边管工程分层 —— 不重复。
 >
-> 最后核对：2026-11-26
+> 最后核对：2026-11-27
 
 ---
 
@@ -123,3 +123,6 @@ lib/xxx  →  （加载 / 导入）  →  （运行期结构）  →  （使用�
 14. **桌面端的两条特殊事实**（模块八目视时踩出来的）：① 桌面端**不经过** Host 渲染 `index.html`，`webServer.tapIndex` 无效 —— 要给页面送全局，须订阅 `webserver/index-inject` 推一行 `kind: 'global'`；② 桌面主窗口 Origin 是 `dsh-app://app`，同源校验必须放行它（列表只有这一项），否则桌面端每个 `/limbs/*` 请求都 403。
 15. **客户端一个包只有一个 bundle**：`dsh.client` 没有 entry 字段，浏览器侧 `require` 只解析已注册包名、不支持相对路径。所以模块八的 UI 只能留在 `lib/client.js` 里（新开一节 + 新 style 块），不能另开一个 `<x>.client.js` 再 import。
 16. **模块七写盘后必须「先 `git add`，再跑自检」**：`check_docs.py` 的「任务账存档已入库」查 `git ls-files`，新写的 devlog 不入索引时那道闸**必然**红 → 真写永远被撤回、还白扣一张令牌（`踩坑录.md` #17）。`stageForCheck` 只入暂存区**不提交**；自检报红时 `rollbackWrite` 之后还要 `unstageAfterRollback` 把索引退回（仓库无首次提交时 `git restore --staged` 会失败，已退回 `git rm --cached`）。**别调换这两个调用的顺序。**
+17. **模块三的报告落盘只写插件状态目录**：`lib/review-store.js` 的写盘范围**只有** `<DSH_HOME>/dsh-limbs/reviews/*.md`（与模块二 `model-settings.json`、模块七 `handoff-tokens.json` 同一层，本来就在工作区之外）。权限判据只看 `sandboxPolicy.resolve().mode`：`read-only` / 拿不到服务 → **不写并说明原因**，绝不静默。清理策略（最近 20 份 **且** 30 天内，任一条不满足就删）集中在 `REVIEW_KEEP_COUNT` / `REVIEW_KEEP_DAYS` 两个常量里。**生成逻辑不许为了落盘而改**：`analyzeData` / `generateMarkdown` 保持纯函数，落盘是 `reviewConversationOnce` 的副作用。
+18. **可选服务只能用 `ctx.inject([...], cb)` 去等，不能在 `apply()` 里当场 `ctx.get()`**：`ctx.get(name)` 默认 `strict = true`，要求**提供该服务的 fiber 已经 active**。插件 `apply()` 早于别人异步激活时（`webServer` 要 bind 端口、`modelDirectories` 要等 remote 就绪）拿到的就是 `undefined`，而 `apply()` 一辈子只跑一次 → **路由/座位永久缺席且静默**。2026-11-27 真机 `/limbs/*` 六条全 404、复盘面板「读不到模型目录」同一个根因。正解：Host 侧写进 `inject` 或用 `ctx.inject`；Client 侧的槽位 `inject: (sessionId) => …` 回调里**每次现取**，别在注册那一刻取一次存进闭包。
+19. **Host 三桥的挂载结果必须落盘**：`lib/host-status.js` 每次启动往 `<DSH_HOME>/dsh-limbs/host-status.json` 写一份「谁挂了、挂了哪几条路由、失败原因」。它不是业务数据也不是新真源（路由名仍由各模块自己的常量给），是**给真机排查看的现场**。没有它，面板只能给出三句并列猜测；有了它，一条 `tools/host-diagnose.ps1` 就能定位。**离线测试不许写这份文件** —— 会盖掉真机的现场（recorder 见不到真 `ctx.fiber` 就不落盘）。

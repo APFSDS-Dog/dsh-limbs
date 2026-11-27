@@ -41,7 +41,11 @@ function check(name, condition, detail = '') {
 const log = (line) => process.stdout.write(`${line}\n`)
 
 // ── 微型 React ──────────────────────────────────────────────────────────
+// ⚠️ `useRef` 必须**跨渲染持久**（真 React 就是这样）：面板用 ref 记住
+// 「已经为哪个会话读过盘」，如果这里每次 render 都返回全新 `{current}`，
+// 那道判据永远为假 → 切会话的断言会被测成「读了好几次」的假红。
 const stateStore = new WeakMap()
+const refStore = new WeakMap()
 let current = null
 
 function createElement(type, props, ...children) {
@@ -54,7 +58,9 @@ function createElement(type, props, ...children) {
 function begin(component) {
   let states = stateStore.get(component)
   if (states === undefined) { states = []; stateStore.set(component, states) }
-  const frame = { states, cursor: 0, cleanups: [] }
+  let refs = refStore.get(component)
+  if (refs === undefined) { refs = []; refStore.set(component, refs) }
+  const frame = { states, refs, cursor: 0, refCursor: 0, cleanups: [] }
   const previous = current
   current = frame
   return () => { current = previous }
@@ -70,7 +76,12 @@ const useState = (initial) => {
   return [frame.states[slot], set]
 }
 const useEffect = (effect) => { current.cursor += 1; effect() }
-const useRef = (initial) => { current.cursor += 1; return { current: initial } }
+const useRef = (initial) => {
+  const frame = current
+  const slot = frame.refCursor++
+  if (!(slot in frame.refs)) frame.refs[slot] = { current: initial }
+  return frame.refs[slot]
+}
 const useCallback = (fn) => { current.cursor += 1; return fn }
 const useMemo = (fn) => { current.cursor += 1; return fn() }
 const useSyncExternalStore = (subscribe, getSnapshot) => {
@@ -442,6 +453,8 @@ check('gate exposes the model store (snapshot + subscribe)', face.store !== null
   && typeof face.store.getSnapshot === 'function' && typeof face.store.subscribe === 'function')
 check('gate exposes the directory writer', typeof face.select === 'function')
 check('gate exposes one review action', typeof face.runReview === 'function')
+// B2：还要暴露「读回上次落盘的那份」。没有它 = 切走会话就看不到报告。
+check('gate exposes the saved-report reader', typeof face.readSaved === 'function')
 
 const panelView = render(body.component, face)
 const runButton = byClass(panelView, 'limbs-run')
@@ -522,8 +535,8 @@ check('no raw quote survives unescaped inside a tag we emitted',
   !/<(?:p|li|td|th|h\d)[^>]*"/.test(reportHtml.replace(/ class="[^"]*"/g, '')))
 
 const settledButton = byClass(settledView, 'limbs-run')
-check('button returns to ready state', settledButton?.props?.children === '一键复盘',
-  String(settledButton?.props?.children))
+check('button turns into 重新复盘 once a report is on screen',
+  settledButton?.props?.children === '重新复盘', String(settledButton?.props?.children))
 
 // 失败面：命令报错时给可读原因，不静默、不假装有报告
 // 微型 React 的 state 按组件函数保存，所以这里套一层新函数取得干净状态。
@@ -543,6 +556,179 @@ check('a failed review shows a readable reason',
   failedNotice !== undefined && String(failedNotice.props.children).includes('会话不在内存 Session 注册表'),
   JSON.stringify(failedNotice?.props?.children))
 check('a failed review leaves the report area empty', byClass(failedView, 'limbs-md') === undefined)
+
+// ── 4b. B2：打开面板先读落盘文件 / 标生成时间 / 重新复盘覆盖 ─────────────
+log('== review panel · saved report (B2)')
+
+// 假的好盘文件：一份已生成过的报告 + 一个可读的时间戳。
+const SAVED_AT = 1_763_000_000_000
+const savedFace = {
+  store: directoryStore,
+  select: directory.select,
+  // 面板按会话注入：会话 id 也是读盘的一部分（切会话要重读）。
+  sessionId: 'session:test-0001',
+  runReview: () => Promise.resolve(REAL_REPORT),
+  readSaved: () => Promise.resolve({ found: true, markdown: REAL_REPORT, generatedAt: SAVED_AT }),
+}
+
+function SavedPanel(props) { return testApi.LimbsReviewPanel(props) }
+const savedView = render(SavedPanel, savedFace)
+// 读盘是异步的：等一拍再渲染。
+await new Promise((resolve) => setTimeout(resolve, 20))
+const reopenedView = render(SavedPanel, savedFace)
+const reopenedReport = byClass(reopenedView, 'limbs-md')
+check('panel opens straight into the saved report (no button press)',
+  reopenedReport !== undefined && typeof reopenedReport.props?.dangerouslySetInnerHTML?.__html === 'string',
+  JSON.stringify(Object.keys(reopenedReport?.props || {})))
+check('saved report reads back the same markdown',
+  String(reopenedReport?.props?.dangerouslySetInnerHTML?.__html || '').includes('会话复盘'),
+  String(reopenedReport?.props?.dangerouslySetInnerHTML?.__html || '').slice(0, 80))
+const whenNode = byClass(reopenedView, 'limbs-reportWhen')
+check('the saved report is labelled with its generation time', whenNode !== undefined,
+  textOf(reopenedView).slice(0, 200))
+check('the label reads 生成于 + a real timestamp',
+  String(whenNode?.props?.children || '').startsWith('生成于 ')
+  && String(whenNode?.props?.children || '').includes(String(new Date(SAVED_AT).getFullYear()),
+    ), String(whenNode?.props?.children))
+check('no "not saved" warning when the file reads back',
+  byClass(reopenedView, 'limbs-storageNotice') === undefined)
+const reopenedButton = byClass(reopenedView, 'limbs-run')
+check('the primary button becomes 重新复盘 for a saved report',
+  reopenedButton?.props?.children === '重新复盘', String(reopenedButton?.props?.children))
+
+// 「重新复盘」→ 覆盖：再点一次，报告与时间都要跟着更新到最新一次。
+let rerunSavedAt = SAVED_AT
+const rerunFace = {
+  store: directoryStore,
+  select: directory.select,
+  sessionId: 'session:test-0001',
+  runReview: () => {
+    rerunSavedAt = SAVED_AT + 60_000
+    return Promise.resolve(REAL_REPORT.replace('事件 12 条', '事件 14 条'))
+  },
+  readSaved: () => Promise.resolve({ found: true, markdown: REAL_REPORT, generatedAt: rerunSavedAt }),
+}
+function RerunPanel(props) { return testApi.LimbsReviewPanel(props) }
+const rerunView = render(RerunPanel, rerunFace)
+await new Promise((resolve) => setTimeout(resolve, 20))
+render(RerunPanel, rerunFace)                                  // 第一次：读回旧文件
+const rerunButton = byClass(render(RerunPanel, rerunFace), 'limbs-run')
+rerunButton.props.onClick()
+await new Promise((resolve) => setTimeout(resolve, 20))
+const rerunAfter = render(RerunPanel, rerunFace)
+const rerunReport = String(byClass(rerunAfter, 'limbs-md')?.props?.dangerouslySetInnerHTML?.__html || '')
+check('重新复盘 replaces the report body with the fresh one', rerunReport.includes('事件 14 条'),
+  rerunReport.slice(0, 80))
+check('重新复盘 refreshes the generation time label',
+  String(byClass(rerunAfter, 'limbs-reportWhen')?.props?.children || '').includes('生成于 '),
+  String(byClass(rerunAfter, 'limbs-reportWhen')?.props?.children))
+
+// 落盘失败（只读权限档）：报告照显示，另给一条可读提示，且不出现假时间
+const unsavedFace = {
+  store: directoryStore,
+  select: directory.select,
+  sessionId: 'session:test-0001',
+  runReview: () => Promise.resolve(REAL_REPORT),
+  readSaved: () => Promise.resolve({ found: false, markdown: null, generatedAt: null }),
+}
+function UnsavedPanel(props) { return testApi.LimbsReviewPanel(props) }
+const unsavedView = render(UnsavedPanel, unsavedFace)
+await new Promise((resolve) => setTimeout(resolve, 20))
+const unsavedPanel = render(UnsavedPanel, unsavedFace)
+byClass(unsavedPanel, 'limbs-run').props.onClick()
+await new Promise((resolve) => setTimeout(resolve, 20))
+const unsavedAfter = render(UnsavedPanel, unsavedFace)
+check('a report that did not reach disk is still shown',
+  byClass(unsavedAfter, 'limbs-md') !== undefined)
+// 文案已从「没有落盘」改成「没确认落盘」—— 因为「读不回来」不等于「没写进去」：
+// 令牌失配（Host 换了一次令牌、页面还拿着旧的）也会走到这条分支，而那时
+// 文件其实**已经**写进 reviews/ 了。说「没落盘」是撒谎，说「没确认」才对。
+check('an unsaved report explains itself instead of pretending',
+  byClass(unsavedAfter, 'limbs-storageNotice') !== undefined
+  && textOf(unsavedAfter).includes('没确认落盘'), textOf(unsavedAfter).slice(0, 200))
+check('unsaved notice points at the diagnosis file instead of listing guesses',
+  byClass(unsavedAfter, 'limbs-storageNotice') !== undefined
+  && textOf(unsavedAfter).includes('host-status.json'),
+  textOf(unsavedAfter).slice(0, 260))
+check('no generation-time label when nothing was stored',
+  byClass(unsavedAfter, 'limbs-reportWhen') === undefined,
+  textOf(unsavedAfter).slice(0, 160))
+
+// 读盘就失败（Host 路由没挂上）：必须安静降级成空态，不能崩、不能报红
+function BrokenReadPanel(props) { return testApi.LimbsReviewPanel(props) }const brokenReadFace = {
+  store: directoryStore,
+  select: directory.select,
+  runReview: () => Promise.resolve(REAL_REPORT),
+  readSaved: () => Promise.reject(new Error('bridge missing')),
+}
+const brokenView = render(BrokenReadPanel, brokenReadFace)
+await new Promise((resolve) => setTimeout(resolve, 20))
+const brokenAfter = render(BrokenReadPanel, brokenReadFace)
+check('a failing saved-report read degrades to the empty state',
+  byClass(brokenAfter, 'limbs-reportEmpty') !== undefined
+  && byClass(brokenAfter, 'limbs-runNotice') === undefined, textOf(brokenAfter).slice(0, 160))
+
+// 面板没有 readSaved（旧 face / 离线注入）：行为回到「只能生成」而不报错
+const noReaderFace = { store: directoryStore, select: directory.select, runReview: () => Promise.resolve(REAL_REPORT) }
+function NoReaderPanel(props) { return testApi.LimbsReviewPanel(props) }
+const noReaderView = render(NoReaderPanel, noReaderFace)
+check('a face without a saved-report reader still renders',
+  byClass(noReaderView, 'limbs-run') !== undefined)
+
+// 读回请求本身的判据：无 bridge 全局 → 走兜底桥接；每一步都失败 → 空态
+check('the saved-report reader tolerates a missing fetch bridge (no throw)',
+  await testApi.limbsSavedReportRequest('session:test-0001')
+    .then((value) => value.found === false, () => false))
+
+// ── 4c. 切会话：面板必须重新读盘（B2 的原始诉求）─────────────────────────
+log('== review panel · session switch (B2 core)')
+// 一个面，按当前会话返回不同的落盘报告 —— 模拟「A 会话有报告、B 会话没有」。
+const switchState = { session: 'session:A', reads: 0 }
+const switchFace = {
+  store: directoryStore,
+  select: directory.select,
+  get sessionId() { return switchState.session },
+  runReview: () => Promise.resolve(REAL_REPORT),
+  readSaved: () => {
+    switchState.reads += 1
+    if (switchState.session === 'session:A') {
+      return Promise.resolve({ found: true, markdown: REAL_REPORT, generatedAt: SAVED_AT })
+    }
+    return Promise.resolve({ found: false, markdown: null, generatedAt: null })
+  },
+}
+function SwitchPanel() { return testApi.LimbsReviewPanel(switchFace) }
+render(SwitchPanel)                                           // A 会话：读盘
+await new Promise((resolve) => setTimeout(resolve, 20))
+const sessionAView = render(SwitchPanel)
+check('session A opens with its own saved report',
+  byClass(sessionAView, 'limbs-md') !== undefined
+  && byClass(sessionAView, 'limbs-reportWhen') !== undefined,
+  textOf(sessionAView).slice(0, 120))
+check('session A read the file exactly once', switchState.reads === 1, String(switchState.reads))
+
+// 切到 B（没有落盘报告）：必须重新读盘，并且把 A 的报告从屏幕上撤掉。
+switchState.session = 'session:B'
+render(SwitchPanel)
+await new Promise((resolve) => setTimeout(resolve, 20))
+const sessionBView = render(SwitchPanel)
+check('switching sessions triggers a fresh read', switchState.reads === 2, String(switchState.reads))
+check('session B does not show session A report',
+  byClass(sessionBView, 'limbs-md') === undefined, textOf(sessionBView).slice(0, 160))
+check('session B shows the empty state instead',
+  byClass(sessionBView, 'limbs-reportEmpty') !== undefined, textOf(sessionBView).slice(0, 160))
+check('session B has no stale generation time',
+  byClass(sessionBView, 'limbs-reportWhen') === undefined)
+
+// 切回 A：再读一次（不是复用缓存），报告回来
+switchState.session = 'session:A'
+render(SwitchPanel)
+await new Promise((resolve) => setTimeout(resolve, 20))
+const backToA = render(SwitchPanel)
+check('switching back re-reads the file (no stale cache)', switchState.reads === 3, String(switchState.reads))
+check('session A report is back after switching back',
+  byClass(backToA, 'limbs-md') !== undefined && byClass(backToA, 'limbs-reportWhen') !== undefined,
+  textOf(backToA).slice(0, 120))
 
 // ── 5. 标题行入口 ───────────────────────────────────────────────────────
 log('== header entry')
