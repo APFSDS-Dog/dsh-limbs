@@ -89,8 +89,8 @@
 |---|---|---|
 | DSH 桌面版 | 插件宿主（`0.2.2-rc.5` 起验证过） | 路径**不写死**，见机器环境档案 |
 | Electron（随 DSH） | 当 Node 跑离线测试（本机 PATH 无 node） | `ELECTRON_RUN_AS_NODE=1` |
-| GitHub · `apfsds-dog/dsh-limbs` | 源码与 Release | `v0.1.0` 已发布，topic `dsh-plugin` |
-| awesome-dsh-plugin 市场 | 收录条目 | 条目名 **全小写** `apfsds-dog__dsh-limbs.yml`，已合并 |
+| GitHub · `APFSDS-Dog/dsh-limbs` | 源码与 Release | `v0.1.0` 已发布，topic `dsh-plugin`；**仓库名大小写以 `APFSDS-Dog` 为准**（2026-11-27 按 GitHub 重定向提示统一） |
+| awesome-dsh-plugin 市场 | 收录条目 | 条目名 **全小写** `apfsds-dog__dsh-limbs.yml`（上架时冻结的形态，**不改**），已合并 |
 
 ---
 

@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/apfsds-dog/dsh-limbs.git"
+    "url": "git+https://github.com/APFSDS-Dog/dsh-limbs.git"
   },
   "exports": {
     ".": "./lib/host.js",
@@ -48,9 +48,9 @@
       ]
     }
   },
-  "homepage": "https://github.com/apfsds-dog/dsh-limbs#readme",
+  "homepage": "https://github.com/APFSDS-Dog/dsh-limbs#readme",
   "bugs": {
-    "url": "https://github.com/apfsds-dog/dsh-limbs/issues"
+    "url": "https://github.com/APFSDS-Dog/dsh-limbs/issues"
   },
   "author": "APFSDS-Dog <105074583+APFSDS-Dog@users.noreply.github.com>",
   "keywords": [

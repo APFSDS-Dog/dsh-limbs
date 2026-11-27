@@ -277,7 +277,7 @@ icon.svg            # 插件图标
 
 > **`Docs/` 与 `tools/` 不随包发布** —— `Docs/` 是工程治理文档（设计、决策、踩坑、任务记录），
 > 只有这个 README 是给用户的。要看设计细节请到仓库：
-> <https://github.com/apfsds-dog/dsh-limbs/tree/main/Docs>
+> <https://github.com/APFSDS-Dog/dsh-limbs/tree/main/Docs>
 
 ## 开发
 
