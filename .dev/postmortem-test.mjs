@@ -177,6 +177,12 @@ check('Markdown 含建议标题', markdownA.includes('### 五、优化建议'))
 check('Markdown 写出 read 工具名', markdownA.includes('`read`'))
 check('Markdown 说明了差分口径', markdownA.includes('差分归因'))
 check('同一批调用被多条诊断命中时标注去重', markdownA.includes('不重复计入'))
+// 2026-11-27 真机目视反馈：`约 207.5k tokens / 650B` 把费用与结果体量两种单位
+// 挤在同一个斜杠里，读的人会当成同一个东西的两个刻度。单位必须分开命名。
+check('诊断行把「费用」与「结果体量」分开命名',
+  markdownA.includes('tokens 费用，结果体量 '),
+  markdownA.split('\n').find(line => line.includes('tokens 费用')) ?? '（没找到诊断行）')
+check('诊断行不再出现裸斜杠并列两种单位', !/\d+\s+tokens\s*\/\s*\d/.test(markdownA))
 
 // ════════════════════════════════════════════════════════════════════
 console.log('\n[场景 B] 干净会话')
@@ -250,6 +256,12 @@ check('报告出现上下文构成小节', markdownD.includes('、上下文构�
 check('构成里有工具结果行', markdownD.includes('| 工具结果 |'))
 check('有投影时诊断章节顺延为「四」', markdownD.includes('### 四、效率诊断'))
 check('尾注说明投影来源', markdownD.includes('contextTimeline'))
+// 2026-11-27 真机目视反馈：原来三件事（怎么生成 / 不花钱 / 数据源）挤成一大段，
+// 扫一眼抓不住重点。拆成两个带小标题的段落。
+check('尾注拆成「本报告怎么来的」与「数据源」两段',
+  markdownD.includes('**本报告怎么来的**') && markdownD.includes('**数据源**'))
+check('尾注两段之间有空行分隔',
+  markdownD.includes('**数据源**\n\n'))
 
 // ── 降级：投影缺失 / 抛错都必须安静退回事件流 ──
 const noProjectionCtx = {
